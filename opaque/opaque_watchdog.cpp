@@ -35,15 +35,10 @@ bool choose_timeout(const uint32_t timeout_ms, uint32_t& prescaler,
     return false;
   }
 
-  for (const auto option : k_prescalers) {
+  for (const auto& option : k_prescalers) {
     const auto denominator = static_cast<uint64_t>(1000U) * option.divider;
     const auto ticks = (static_cast<uint64_t>(timeout_ms) * k_lsi_hz + denominator - 1U) /
                        denominator;
-    if (ticks == 0U) {
-      prescaler = option.hal_value;
-      reload = 0U;
-      return true;
-    }
 
     if ((ticks - 1U) <= k_max_reload) {
       prescaler = option.hal_value;
@@ -57,14 +52,14 @@ bool choose_timeout(const uint32_t timeout_ms, uint32_t& prescaler,
 }  // namespace
 
 result opaque_watchdog::init(const uint32_t timeout_ms) noexcept {
-  if (m_initialized) {
+  if (initialized()) {
     return kick();
   }
 
   uint32_t prescaler{0U};
   uint32_t reload{0U};
   if (!choose_timeout(timeout_ms, prescaler, reload)) {
-    return result::RECOVERABLE_ERROR;
+    return result::UNRECOVERABLE_ERROR;
   }
 
   m_handle = {};
@@ -75,21 +70,20 @@ result opaque_watchdog::init(const uint32_t timeout_ms) noexcept {
   m_handle.Init.EWI = IWDG_EWI_DISABLE;
 
   const auto status = from_hal_status(HAL_IWDG_Init(&m_handle));
-  if (status == result::OK) {
-    m_timeout_ms = timeout_ms;
-    m_initialized = true;
+  if (status != result::OK) {
+    m_handle.Instance = nullptr;
   }
 
   return status;
 }
 
 result opaque_watchdog::stop() noexcept {
-  return m_initialized ? result::RECOVERABLE_ERROR : result::OK;
+  return initialized() ? result::RECOVERABLE_ERROR : result::OK;
 }
 
 result opaque_watchdog::kick() noexcept {
-  if (!m_initialized) {
-    return result::RECOVERABLE_ERROR;
+  if (!initialized()) {
+    return result::UNRECOVERABLE_ERROR;
   }
 
   return from_hal_status(HAL_IWDG_Refresh(&m_handle));

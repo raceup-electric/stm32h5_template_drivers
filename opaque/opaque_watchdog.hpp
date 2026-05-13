@@ -21,7 +21,7 @@ struct opaque_watchdog {
   result kick() noexcept;
 
   IWDG_HandleTypeDef m_handle{};
-  uint32_t m_timeout_ms{0U};
-  bool m_initialized{false};
+
+  bool initialized() const noexcept { return m_handle.Instance != nullptr; }
 };
 }  // namespace ru::driver
