@@ -128,8 +128,6 @@ CanMessageTs make_message_ts(const FDCAN_RxHeaderTypeDef& header,
 
 struct CanControllerState {
   FDCAN_HandleTypeDef handle{};
-  bool initialized{false};
-  bool started{false};
   std::array<uint8_t, 2> rx_priorities{k_default_irq_priority,
                                        k_default_irq_priority};
   std::array<bool, 2> rx_interrupts{false, false};
@@ -152,11 +150,11 @@ CanControllerState g_fdcan2_state{};
 CanControllerState g_invalid_state{};
 
 CanControllerState& state(const opaque_can& config) noexcept {
-  if (config.m_p_instance == FDCAN1) {
+  if (config.m_key == can_controller_key::Fdcan1) {
     return g_fdcan1_state;
   }
 #if defined(FDCAN2)
-  if (config.m_p_instance == FDCAN2) {
+  if (config.m_key == can_controller_key::Fdcan2) {
     return g_fdcan2_state;
   }
 #endif
@@ -164,13 +162,14 @@ CanControllerState& state(const opaque_can& config) noexcept {
   return g_invalid_state;
 }
 
-constexpr opaque_can instance_config(FDCAN_GlobalTypeDef* const p_instance) noexcept {
-  return opaque_can{p_instance, nullptr, 0U, nullptr, 0U, 0U};
+constexpr bool instance_matches_key(const opaque_can& config,
+                                    FDCAN_GlobalTypeDef* const p_instance) noexcept {
+  return make_opaque(p_instance).m_key == config.m_key;
 }
 
 constexpr IRQn_Type fdcan_it0_irq(const opaque_can& config) noexcept {
 #if defined(FDCAN2)
-  if (config.m_p_instance == FDCAN2) {
+  if (config.m_key == can_controller_key::Fdcan2) {
     return FDCAN2_IT0_IRQn;
   }
 #else
@@ -182,7 +181,7 @@ constexpr IRQn_Type fdcan_it0_irq(const opaque_can& config) noexcept {
 
 constexpr IRQn_Type fdcan_it1_irq(const opaque_can& config) noexcept {
 #if defined(FDCAN2)
-  if (config.m_p_instance == FDCAN2) {
+  if (config.m_key == can_controller_key::Fdcan2) {
     return FDCAN2_IT1_IRQn;
   }
 #else
@@ -310,12 +309,13 @@ FDCAN_HandleTypeDef& handle(const opaque_can& config) noexcept {
   return state(config).handle;
 }
 
-bool& initialized(const opaque_can& config) noexcept {
-  return state(config).initialized;
+bool initialized(const opaque_can& config) noexcept {
+  return handle(config).Instance != nullptr;
 }
 
-bool& started(const opaque_can& config) noexcept {
-  return state(config).started;
+bool started(const opaque_can& config) noexcept {
+  const auto* const p_instance = handle(config).Instance;
+  return p_instance != nullptr && (p_instance->CCCR & FDCAN_CCCR_INIT) == 0U;
 }
 
 std::array<uint8_t, 2>& rx_priorities(const opaque_can& config) noexcept {
@@ -418,9 +418,11 @@ result refresh_notifications(const opaque_can& config) noexcept {
   return result::OK;
 }
 
-result init_controller(const opaque_can& config) noexcept {
-  if (config.m_p_instance == nullptr || config.m_p_port_rx == nullptr ||
-      config.m_p_port_tx == nullptr) {
+result init_controller(const opaque_can& config,
+                       const stm32h5xx::cfg::can_config& init_config) noexcept {
+  if (config.m_key == can_controller_key::Invalid || init_config.instance() == nullptr ||
+      init_config.port_rx() == nullptr || init_config.port_tx() == nullptr ||
+      !instance_matches_key(config, init_config.instance())) {
     return result::UNRECOVERABLE_ERROR;
   }
   if (!controller_config_is_valid(controller_config(config))) {
@@ -433,53 +435,23 @@ result init_controller(const opaque_can& config) noexcept {
       if (HAL_FDCAN_Start(&hw_handle) != HAL_OK) {
         return result::RECOVERABLE_ERROR;
       }
-      started(config) = true;
     }
 
     return refresh_notifications(config);
   }
 
-  enable_fdcan_clock(config.m_p_instance);
-  init_pin(config.m_p_port_rx, config.m_rx_pin, GPIO_MODE_AF_PP, GPIO_PULLUP,
-           GPIO_SPEED_FREQ_VERY_HIGH, config.m_alternate);
-  init_pin(config.m_p_port_tx, config.m_tx_pin, GPIO_MODE_AF_PP, GPIO_PULLUP,
-           GPIO_SPEED_FREQ_VERY_HIGH, config.m_alternate);
+  enable_fdcan_clock(init_config.instance());
+  init_pin(init_config.port_rx(), init_config.rx_pin_init);
+  init_pin(init_config.port_tx(), init_config.tx_pin_init);
 
   hw_handle = {};
   const auto current_config = controller_config(config);
-  hw_handle.Instance = config.m_p_instance;
-  hw_handle.Init.ClockDivider = FDCAN_CLOCK_DIV1;
+  hw_handle.Instance = init_config.instance();
+  hw_handle.Init = init_config.init;
   hw_handle.Init.FrameFormat =
       fdcan_controller_frame_format(current_config.max_frame_format);
-  hw_handle.Init.Mode = FDCAN_MODE_NORMAL;
-  hw_handle.Init.AutoRetransmission = ENABLE;
-  hw_handle.Init.TransmitPause = DISABLE;
-  hw_handle.Init.ProtocolException = DISABLE;
-
-  /* 500Kbit/s with 20MHz FDCAN clock:*/
-  hw_handle.Init.NominalPrescaler = 4U;
-  hw_handle.Init.NominalSyncJumpWidth = 1U;
-  hw_handle.Init.NominalTimeSeg1 = 8U;
-  hw_handle.Init.NominalTimeSeg2 = 1U;
-  hw_handle.Init.DataPrescaler = 4U;
-  hw_handle.Init.DataSyncJumpWidth = 1U;
-  hw_handle.Init.DataTimeSeg1 = 8U;
-  hw_handle.Init.DataTimeSeg2 = 1U;
- 
-  /* 1Mbit/s with 20MHz FDCAN clock:
-  hw_handle.Init.NominalPrescaler = 1U;
-  hw_handle.Init.NominalSyncJumpWidth = 4U;
-  hw_handle.Init.NominalTimeSeg1 = 15U;
-  hw_handle.Init.NominalTimeSeg2 = 4U;
-  hw_handle.Init.DataPrescaler = 1U;
-  hw_handle.Init.DataSyncJumpWidth = 4U;
-  hw_handle.Init.DataTimeSeg1 = 15U;
-  hw_handle.Init.DataTimeSeg2 = 4U;
-  */
-  
   hw_handle.Init.StdFiltersNbr = current_config.standard_filter_count;
   hw_handle.Init.ExtFiltersNbr = current_config.extended_filter_count;
-  hw_handle.Init.TxFifoQueueMode = FDCAN_TX_FIFO_OPERATION;
 
   if (HAL_FDCAN_Init(&hw_handle) != HAL_OK) {
     return result::RECOVERABLE_ERROR;
@@ -514,8 +486,6 @@ result init_controller(const opaque_can& config) noexcept {
     return result::RECOVERABLE_ERROR;
   }
 
-  initialized(config) = true;
-  started(config) = true;
   return refresh_notifications(config);
 }
 
@@ -533,7 +503,6 @@ result stop_controller(const opaque_can& config) noexcept {
     return result::RECOVERABLE_ERROR;
   }
 
-  started(config) = false;
   return result::OK;
 }
 
@@ -642,14 +611,14 @@ void service_rx_fifo_callback(FDCAN_HandleTypeDef* const hfdcan,
     return;
   }
 
-  const auto fdcan1_config = instance_config(FDCAN1);
+  const auto fdcan1_config = make_opaque(FDCAN1);
   if (hfdcan == &handle(fdcan1_config)) {
     service_rx_fifo(fdcan1_config, fifo);
     return;
   }
 
 #if defined(FDCAN2)
-  const auto fdcan2_config = instance_config(FDCAN2);
+  const auto fdcan2_config = make_opaque(FDCAN2);
   if (hfdcan == &handle(fdcan2_config)) {
     service_rx_fifo(fdcan2_config, fifo);
   }
@@ -661,7 +630,7 @@ void service_tx_callback(FDCAN_HandleTypeDef* const hfdcan) noexcept {
     return;
   }
 
-  const auto fdcan1_config = instance_config(FDCAN1);
+  const auto fdcan1_config = make_opaque(FDCAN1);
   if (hfdcan == &handle(fdcan1_config) &&
       txfull_callback(fdcan1_config) != nullptr) {
     txfull_callback(fdcan1_config)();
@@ -669,7 +638,7 @@ void service_tx_callback(FDCAN_HandleTypeDef* const hfdcan) noexcept {
   }
 
 #if defined(FDCAN2)
-  const auto fdcan2_config = instance_config(FDCAN2);
+  const auto fdcan2_config = make_opaque(FDCAN2);
   if (hfdcan == &handle(fdcan2_config) &&
       txfull_callback(fdcan2_config) != nullptr) {
     txfull_callback(fdcan2_config)();
@@ -678,7 +647,7 @@ void service_tx_callback(FDCAN_HandleTypeDef* const hfdcan) noexcept {
 }
 
 void handle_interrupt(FDCAN_GlobalTypeDef* const p_instance) noexcept {
-  auto& hw_handle = handle(instance_config(p_instance));
+  auto& hw_handle = handle(make_opaque(p_instance));
   HAL_FDCAN_IRQHandler(&hw_handle);
 }
 }  // namespace ru::driver::can_internal

@@ -27,6 +27,6 @@ result Watchdog::kick() noexcept {
 }
 
 Timestamp Watchdog::timeout() const noexcept {
-  return static_cast<Timestamp>(m_opaque.m_timeout_ms) * 1000U;
+  return static_cast<Timestamp>(k_default_watchdog_timeout_ms) * 1000U;
 }
 }  // namespace ru::driver

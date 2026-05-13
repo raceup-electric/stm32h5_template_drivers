@@ -59,7 +59,12 @@ CanControllerConfig M_can::configuration(const M_canId id) noexcept {
 }
 
 result M_can::init() noexcept {
-  return init_controller(m_opaque);
+  const auto* const config = config_for(m_id);
+  if (config == nullptr) {
+    return result::UNRECOVERABLE_ERROR;
+  }
+
+  return init_controller(m_opaque, *config);
 }
 
 result M_can::stop() noexcept {

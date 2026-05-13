@@ -3,6 +3,7 @@
 
 #include "adc.hpp"
 #include "mapping.hpp"
+#include "opaque_adc.hpp"
 #include "utils/common.hpp"
 
 using namespace ru::driver;
@@ -19,19 +20,26 @@ constexpr std::size_t k_dma_buffer_capacity =
     (k_adc_count == 0U ? 1U : k_adc_count) * k_dma_frames;
 constexpr std::size_t k_dma_backend_count = 2U;
 
+uint32_t timer_prescaler(const uint32_t counter_clock_hz) noexcept {
+  const auto timer_clock_hz = SystemCoreClock == 0U ? 64000000U : SystemCoreClock;
+  const auto target_counter_clock_hz = counter_clock_hz == 0U ? 1U : counter_clock_hz;
+  return timer_clock_hz > target_counter_clock_hz
+             ? (timer_clock_hz / target_counter_clock_hz) - 1U
+             : 0U;
+}
+
+uint32_t timer_period(const uint32_t counter_clock_hz,
+                      const uint32_t frequency_hz) noexcept {
+  const auto target_counter_clock_hz = counter_clock_hz == 0U ? 1U : counter_clock_hz;
+  const auto target_frequency_hz = frequency_hz == 0U ? 1U : frequency_hz;
+  const auto period_ticks =
+      std::max<uint32_t>(target_counter_clock_hz / target_frequency_hz, 1U);
+  return period_ticks - 1U;
+}
+
 struct adc_dma_channel_config {
   AdcId id;
-  ADC_TypeDef* p_instance;
-  GPIO_TypeDef* p_port;
-  uint16_t pin;
-  uint32_t channel;
-};
-
-struct adc_dma_instance_config {
-  ADC_TypeDef* p_instance;
-  uint32_t request;
-  DMA_Channel_TypeDef* p_dma_channel;
-  IRQn_Type irq;
+  stm32h5xx::cfg::adc_config mapping;
 };
 
 ADC_HandleTypeDef& adc_handle(const AdcId id) noexcept {
@@ -46,32 +54,20 @@ ADC_HandleTypeDef& adc_handle(const AdcId id) noexcept {
   return index < handles.size() ? handles[index] : handles.front();
 }
 
+opaque_adc make_opaque(const AdcId id) noexcept {
+  return opaque_adc{&adc_handle(id)};
+}
+
 constexpr std::array<adc_dma_channel_config, k_adc_count> k_adc_dma_configs = {
-#define RU_STM32H5XX_ADC_DMA_ENTRY(name, instance, port, pin, channel) \
-  adc_dma_channel_config{AdcId::name, instance, port, pin, channel},
+#define RU_STM32H5XX_ADC_DMA_ENTRY(name, config) \
+  adc_dma_channel_config{AdcId::name, config},
     RU_STM32H5XX_ADC_MAP(RU_STM32H5XX_ADC_DMA_ENTRY)
 #undef RU_STM32H5XX_ADC_DMA_ENTRY
 };
 
-constexpr std::array<adc_dma_instance_config, k_dma_backend_count> k_dma_instance_configs{{
-    {ADC1, GPDMA1_REQUEST_ADC1, GPDMA1_Channel0, GPDMA1_Channel0_IRQn},
-    {ADC2, GPDMA1_REQUEST_ADC2, GPDMA1_Channel1, GPDMA1_Channel1_IRQn},
-}};
-
-constexpr opaque_adc make_opaque(const AdcId id) noexcept {
-  switch (id) {
-#define RU_STM32H5XX_ADC_CASE(name, instance, port, pin, channel)                        \
-    case AdcId::name:                                                                    \
-      return opaque_adc{instance, port, pin, channel};
-    RU_STM32H5XX_ADC_MAP(RU_STM32H5XX_ADC_CASE)
-#undef RU_STM32H5XX_ADC_CASE
-    default:
-      return opaque_adc{};
-  }
-}
-
 struct dma_adc_backend {
   ADC_HandleTypeDef adc_handle{};
+  TIM_HandleTypeDef trigger_timer_handle{};
   DMA_NodeTypeDef dma_node{};
   DMA_QListTypeDef dma_queue{};
   DMA_HandleTypeDef dma_channel_handle{};
@@ -101,21 +97,23 @@ const adc_dma_channel_config* adc_config(const AdcId id) noexcept {
   return nullptr;
 }
 
-const adc_dma_instance_config* dma_instance_config(
-    ADC_TypeDef* const p_instance) noexcept {
-  for (const auto& config : k_dma_instance_configs) {
-    if (config.p_instance == p_instance) {
-      return &config;
-    }
+const adc_dma_channel_config* dma_adc_config(const AdcId id) noexcept {
+  const auto* const config = adc_config(id);
+  if (config == nullptr || !config->mapping.uses_dma()) {
+    return nullptr;
   }
 
-  return nullptr;
+  return config;
 }
 
 dma_adc_backend* dma_backend_for_instance(ADC_TypeDef* const p_instance) noexcept {
   auto& backends = dma_backends();
-  for (std::size_t index = 0U; index < k_dma_instance_configs.size(); ++index) {
-    if (k_dma_instance_configs[index].p_instance == p_instance) {
+  for (std::size_t index = 0U; index < k_adc_dma_configs.size(); ++index) {
+    if (!k_adc_dma_configs[index].mapping.uses_dma()) {
+      continue;
+    }
+
+    if (k_adc_dma_configs[index].mapping.instance() == p_instance) {
       return &backends[index];
     }
   }
@@ -124,12 +122,12 @@ dma_adc_backend* dma_backend_for_instance(ADC_TypeDef* const p_instance) noexcep
 }
 
 dma_adc_backend* running_dma_backend_for(const AdcId id) noexcept {
-  const auto* const config = adc_config(id);
+  const auto* const config = dma_adc_config(id);
   if (config == nullptr) {
     return nullptr;
   }
 
-  auto* const backend = dma_backend_for_instance(config->p_instance);
+  auto* const backend = dma_backend_for_instance(config->mapping.instance());
   if (backend == nullptr || !backend->running) {
     return nullptr;
   }
@@ -185,7 +183,7 @@ bool prepare_adc_channels(dma_adc_backend& backend,
                           ADC_TypeDef* const p_instance) noexcept {
   std::size_t rank = 0U;
   for (const auto& config : k_adc_dma_configs) {
-    if (config.p_instance != p_instance) {
+    if (!config.mapping.uses_dma() || config.mapping.instance() != p_instance) {
       continue;
     }
 
@@ -193,7 +191,7 @@ bool prepare_adc_channels(dma_adc_backend& backend,
       return false;
     }
 
-    init_pin(config.p_port, config.pin, GPIO_MODE_ANALOG, GPIO_NOPULL);
+    init_pin(config.mapping.port(), config.mapping.pin_init);
     backend.ids[rank] = config.id;
     ++rank;
   }
@@ -206,17 +204,9 @@ bool prepare_adc_channels(dma_adc_backend& backend,
 
 bool configure_adc_channels(dma_adc_backend& backend,
                             ADC_TypeDef* const p_instance) noexcept {
-  ADC_ChannelConfTypeDef channel_config{};
-  channel_config.SamplingTime = ADC_SAMPLETIME_92CYCLES_5;
-  channel_config.SingleDiff = ADC_SINGLE_ENDED;
-  channel_config.OffsetNumber = ADC_OFFSET_NONE;
-  channel_config.Offset = 0U;
-  channel_config.OffsetSign = ADC_OFFSET_SIGN_NEGATIVE;
-  channel_config.OffsetSaturation = DISABLE;
-
   std::size_t rank = 0U;
   for (const auto& config : k_adc_dma_configs) {
-    if (config.p_instance != p_instance) {
+    if (!config.mapping.uses_dma() || config.mapping.instance() != p_instance) {
       continue;
     }
 
@@ -224,7 +214,12 @@ bool configure_adc_channels(dma_adc_backend& backend,
       return false;
     }
 
-    channel_config.Channel = config.channel;
+    const auto* const dma = config.mapping.dma();
+    if (dma == nullptr) {
+      return false;
+    }
+
+    auto channel_config = dma->channel_init;
     channel_config.Rank = static_cast<uint32_t>(rank + 1U);
 
     if (HAL_ADC_ConfigChannel(&backend.adc_handle, &channel_config) != HAL_OK) {
@@ -237,20 +232,62 @@ bool configure_adc_channels(dma_adc_backend& backend,
   return rank == backend.channel_count;
 }
 
+bool init_trigger_timer(
+    dma_adc_backend& backend,
+    const stm32h5xx::cfg::adc_config::dma_backend_config::timer_trigger_config&
+        trigger) noexcept {
+  enable_tim_clock(trigger.timer_instance());
+
+  auto& timer_handle = backend.trigger_timer_handle;
+  timer_handle = {};
+  timer_handle.Instance = trigger.timer_instance();
+  timer_handle.Init = trigger.timer_init;
+  timer_handle.Init.Prescaler = timer_prescaler(trigger.counter_clock_hz);
+  timer_handle.Init.Period =
+      timer_period(trigger.counter_clock_hz, trigger.frequency_hz);
+
+  if (HAL_TIM_Base_Init(&timer_handle) != HAL_OK) {
+    timer_handle.Instance = nullptr;
+    return false;
+  }
+
+  auto master_config = trigger.master_config;
+  if (HAL_TIMEx_MasterConfigSynchronization(&timer_handle, &master_config) != HAL_OK) {
+    (void)HAL_TIM_Base_DeInit(&timer_handle);
+    timer_handle.Instance = nullptr;
+    return false;
+  }
+
+  __HAL_TIM_SET_COUNTER(&timer_handle, 0U);
+  return true;
+}
+
+bool start_trigger_timer(dma_adc_backend& backend) noexcept {
+  auto& timer_handle = backend.trigger_timer_handle;
+  if (timer_handle.Instance == nullptr) {
+    return true;
+  }
+
+  return HAL_TIM_Base_Start(&timer_handle) == HAL_OK;
+}
+
 bool start_dma_backend(const AdcId id) noexcept {
   if constexpr (k_adc_count == 0U) {
     (void)id;
     return false;
   }
 
-  const auto* const input_config = adc_config(id);
+  const auto* const input_config = dma_adc_config(id);
   if (input_config == nullptr) {
     return false;
   }
+  const auto* const dma = input_config->mapping.dma();
+  if (dma == nullptr) {
+    return false;
+  }
 
-  const auto* const instance_config = dma_instance_config(input_config->p_instance);
-  auto* const p_backend = dma_backend_for_instance(input_config->p_instance);
-  if (instance_config == nullptr || p_backend == nullptr) {
+  auto* const p_backend = dma_backend_for_instance(input_config->mapping.instance());
+  if (p_backend == nullptr) {
     return false;
   }
 
@@ -264,13 +301,19 @@ bool start_dma_backend(const AdcId id) noexcept {
   __HAL_RCC_ADC_CLK_ENABLE();
   __HAL_RCC_GPDMA1_CLK_ENABLE();
 
-  if (!prepare_adc_channels(backend, input_config->p_instance)) {
+  if (!prepare_adc_channels(backend, input_config->mapping.instance())) {
     return false;
+  }
+
+  if (const auto* const trigger = dma->timer_trigger(); trigger != nullptr) {
+    if (!init_trigger_timer(backend, *trigger)) {
+      return false;
+    }
   }
 
   DMA_NodeConfTypeDef node_config{};
   node_config.NodeType = DMA_GPDMA_LINEAR_NODE;
-  node_config.Init.Request = instance_config->request;
+  node_config.Init.Request = dma->request;
   node_config.Init.BlkHWRequest = DMA_BREQ_SINGLE_BURST;
   node_config.Init.Direction = DMA_PERIPH_TO_MEMORY;
   node_config.Init.SrcInc = DMA_SINC_FIXED;
@@ -293,7 +336,7 @@ bool start_dma_backend(const AdcId id) noexcept {
     return false;
   }
 
-  backend.dma_channel_handle.Instance = instance_config->p_dma_channel;
+  backend.dma_channel_handle.Instance = dma->dma_channel();
   backend.dma_channel_handle.InitLinkedList.Priority = DMA_LOW_PRIORITY_LOW_WEIGHT;
   backend.dma_channel_handle.InitLinkedList.LinkStepMode = DMA_LSM_FULL_EXECUTION;
   backend.dma_channel_handle.InitLinkedList.LinkAllocatedPort = DMA_LINK_ALLOCATED_PORT0;
@@ -307,36 +350,24 @@ bool start_dma_backend(const AdcId id) noexcept {
     return false;
   }
 
-  HAL_NVIC_SetPriority(instance_config->irq, 6U, 0U);
-  HAL_NVIC_EnableIRQ(instance_config->irq);
+  HAL_NVIC_SetPriority(dma->irq, 6U, 0U);
+  HAL_NVIC_EnableIRQ(dma->irq);
 
-  backend.adc_handle.Instance = input_config->p_instance;
-  backend.adc_handle.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV4;
-  backend.adc_handle.Init.Resolution = ADC_RESOLUTION_12B;
-  backend.adc_handle.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  backend.adc_handle.Instance = input_config->mapping.instance();
+  backend.adc_handle.Init = dma->init;
   backend.adc_handle.Init.ScanConvMode =
       backend.channel_count > 1U ? ADC_SCAN_ENABLE : ADC_SCAN_DISABLE;
   backend.adc_handle.Init.EOCSelection =
       backend.channel_count > 1U ? ADC_EOC_SEQ_CONV : ADC_EOC_SINGLE_CONV;
-  backend.adc_handle.Init.LowPowerAutoWait = DISABLE;
-  backend.adc_handle.Init.ContinuousConvMode = ENABLE;
   backend.adc_handle.Init.NbrOfConversion =
       static_cast<uint32_t>(backend.channel_count);
-  backend.adc_handle.Init.DiscontinuousConvMode = DISABLE;
-  backend.adc_handle.Init.NbrOfDiscConversion = 1U;
-  backend.adc_handle.Init.ExternalTrigConv = ADC_SOFTWARE_START;
-  backend.adc_handle.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
-  backend.adc_handle.Init.SamplingMode = ADC_SAMPLING_MODE_NORMAL;
-  backend.adc_handle.Init.DMAContinuousRequests = ENABLE;
-  backend.adc_handle.Init.Overrun = ADC_OVR_DATA_OVERWRITTEN;
-  backend.adc_handle.Init.OversamplingMode = DISABLE;
   __HAL_LINKDMA(&backend.adc_handle, DMA_Handle, backend.dma_channel_handle);
 
   if (HAL_ADC_Init(&backend.adc_handle) != HAL_OK) {
     return false;
   }
 
-  if (!configure_adc_channels(backend, input_config->p_instance)) {
+  if (!configure_adc_channels(backend, input_config->mapping.instance())) {
     return false;
   }
 
@@ -349,6 +380,10 @@ bool start_dma_backend(const AdcId id) noexcept {
       HAL_ADC_Start_DMA(&backend.adc_handle,
                         reinterpret_cast<uint32_t*>(backend.dma_buffer.data()),
                         static_cast<uint32_t>(backend.active_buffer_length)) != HAL_OK) {
+    return false;
+  }
+
+  if (!start_trigger_timer(backend)) {
     return false;
   }
 
@@ -421,6 +456,7 @@ expected::expected<std::optional<uint16_t>, result> try_read_dma_average(
 }  // namespace
 
 result Adc::start() noexcept {
+  opaque_adc::start();
   return result::OK;
 }
 
@@ -428,11 +464,21 @@ Adc::Adc(const AdcId id) noexcept : m_id(id), m_opaque(make_opaque(id)) {
 }
 
 result Adc::init() noexcept {
-  if (start_dma_backend(m_id)) {
+  const auto* const config = adc_config(m_id);
+  if (config == nullptr) {
+    return result::UNRECOVERABLE_ERROR;
+  }
+
+  if (config->mapping.uses_dma()) {
+    return start_dma_backend(m_id) ? result::OK : result::RECOVERABLE_ERROR;
+  }
+
+  auto& handle = adc_handle(m_id);
+  if (handle.Instance != nullptr) {
     return result::OK;
   }
 
-  return m_opaque.init(&adc_handle(m_id));
+  return m_opaque.init(config->mapping);
 }
 
 result Adc::stop() noexcept {
@@ -440,7 +486,7 @@ result Adc::stop() noexcept {
     return result::OK;
   }
 
-  return m_opaque.stop(&adc_handle(m_id));
+  return m_opaque.stop();
 }
 
 expected::expected<uint16_t, result> Adc::read() noexcept {
@@ -449,7 +495,7 @@ expected::expected<uint16_t, result> Adc::read() noexcept {
   }
 
   uint16_t value{0U};
-  const auto status = m_opaque.read(&adc_handle(m_id), value);
+  const auto status = m_opaque.read(value);
   if (status != result::OK) {
     return expected::unexpected(status);
   }
@@ -464,7 +510,7 @@ expected::expected<std::optional<uint16_t>, result> Adc::try_read() noexcept {
 
   bool has_value{false};
   uint16_t value{0U};
-  const auto status = m_opaque.try_read(&adc_handle(m_id), has_value, value);
+  const auto status = m_opaque.try_read(has_value, value);
   if (status != result::OK) {
     return expected::unexpected(status);
   }

@@ -29,8 +29,8 @@ inline constexpr uint32_t k_all_interrupt_mask =
     k_tx_interrupt_mask;
 
 FDCAN_HandleTypeDef& handle(const opaque_can& config) noexcept;
-bool& initialized(const opaque_can& config) noexcept;
-bool& started(const opaque_can& config) noexcept;
+bool initialized(const opaque_can& config) noexcept;
+bool started(const opaque_can& config) noexcept;
 std::array<uint8_t, 2>& rx_priorities(const opaque_can& config) noexcept;
 std::array<bool, 2>& rx_interrupts(const opaque_can& config) noexcept;
 uint8_t& error_priority(const opaque_can& config) noexcept;
@@ -45,43 +45,61 @@ std::array<bool, k_std_filter_slots>& bx_filter_enabled(const opaque_can& config
 std::array<void (*)(CanMessageTs), 2>& rx_callbacks(const opaque_can& config) noexcept;
 void (*&txfull_callback(const opaque_can& config))();
 
-constexpr opaque_can can_opaque_from_instance(
-    FDCAN_GlobalTypeDef* const p_instance) noexcept {
+inline const stm32h5xx::cfg::can_config* config_for(const M_canId id) noexcept {
+  switch (id) {
+#define RU_STM32H5XX_M_CAN_CONFIG(name, config) \
+    case M_canId::name:                         \
+      return &config;
+    RU_STM32H5XX_M_CAN_MAP(RU_STM32H5XX_M_CAN_CONFIG)
+#undef RU_STM32H5XX_M_CAN_CONFIG
+    default:
+      return nullptr;
+  }
+}
+
+inline const stm32h5xx::cfg::can_config* config_for(const Bx_canId id) noexcept {
+  switch (id) {
+#define RU_STM32H5XX_BX_CAN_CONFIG(name, config) \
+    case Bx_canId::name:                         \
+      return &config;
+    RU_STM32H5XX_BX_CAN_MAP(RU_STM32H5XX_BX_CAN_CONFIG)
+#undef RU_STM32H5XX_BX_CAN_CONFIG
+    default:
+      return nullptr;
+  }
+}
+
+constexpr opaque_can make_opaque(FDCAN_GlobalTypeDef* const p_instance) noexcept {
   if (p_instance == FDCAN1) {
-    return opaque_can{
-        FDCAN1, GPIOD, GPIO_PIN_0, GPIOD, GPIO_PIN_1, GPIO_AF9_FDCAN1};
+    return opaque_can{can_controller_key::Fdcan1};
   }
-#if defined(FDCAN2) && defined(GPIO_AF9_FDCAN2)
+#if defined(FDCAN2)
   if (p_instance == FDCAN2) {
-    return opaque_can{
-        FDCAN2, GPIOB, GPIO_PIN_5, GPIOB, GPIO_PIN_13, GPIO_AF9_FDCAN2};
+    return opaque_can{can_controller_key::Fdcan2};
   }
+#else
+  (void)p_instance;
 #endif
+
   return opaque_can{};
 }
 
-constexpr opaque_can make_opaque(const M_canId id) noexcept {
-  switch (id) {
-#define RU_STM32H5XX_M_CAN_CASE(name, instance) \
-    case M_canId::name:                         \
-      return can_opaque_from_instance(instance);
-    RU_STM32H5XX_M_CAN_MAP(RU_STM32H5XX_M_CAN_CASE)
-#undef RU_STM32H5XX_M_CAN_CASE
-    default:
-      return opaque_can{};
+inline opaque_can make_opaque(const M_canId id) noexcept {
+  const auto* const config = config_for(id);
+  if (config == nullptr) {
+    return opaque_can{};
   }
+
+  return make_opaque(config->instance());
 }
 
-constexpr opaque_can make_opaque(const Bx_canId id) noexcept {
-  switch (id) {
-#define RU_STM32H5XX_BX_CAN_CASE(name, instance) \
-    case Bx_canId::name:                         \
-      return can_opaque_from_instance(instance);
-    RU_STM32H5XX_BX_CAN_MAP(RU_STM32H5XX_BX_CAN_CASE)
-#undef RU_STM32H5XX_BX_CAN_CASE
-    default:
-      return opaque_can{};
+inline opaque_can make_opaque(const Bx_canId id) noexcept {
+  const auto* const config = config_for(id);
+  if (config == nullptr) {
+    return opaque_can{};
   }
+
+  return make_opaque(config->instance());
 }
 
 constexpr opaque_can make_opaque(const Flex_canId id) noexcept {
@@ -126,11 +144,9 @@ result with_stopped_controller(const opaque_can& config, Fn&& fn) noexcept {
     return result::RECOVERABLE_ERROR;
   }
 
-  started(config) = false;
   const auto status = fn();
   if (status != result::OK) {
     if (restart && HAL_FDCAN_Start(&hw_handle) == HAL_OK) {
-      started(config) = true;
       (void)refresh_notifications(config);
     }
     return status;
@@ -144,11 +160,11 @@ result with_stopped_controller(const opaque_can& config, Fn&& fn) noexcept {
     return result::RECOVERABLE_ERROR;
   }
 
-  started(config) = true;
   return refresh_notifications(config);
 }
 
-result init_controller(const opaque_can& config) noexcept;
+result init_controller(const opaque_can& config,
+                       const stm32h5xx::cfg::can_config& init_config) noexcept;
 result stop_controller(const opaque_can& config) noexcept;
 expected::expected<CanMessageTs, result> read_fifo_message(const opaque_can& config,
                                                           M_fifo fifo) noexcept;

@@ -31,14 +31,69 @@ struct adc_config {
   };
 
   struct dma_backend_config {
+    struct continuous_trigger_config {};
+
+    struct timer_trigger_config {
+      uintptr_t timer_instance_base;
+      uint32_t counter_clock_hz;
+      uint32_t frequency_hz;
+      TIM_Base_InitTypeDef timer_init;
+      TIM_MasterConfigTypeDef master_config;
+
+      TIM_TypeDef* timer_instance() const noexcept {
+        return reinterpret_cast<TIM_TypeDef*>(timer_instance_base);
+      }
+    };
+
+    using trigger_config =
+        std::variant<continuous_trigger_config, timer_trigger_config>;
+
     ADC_InitTypeDef init;
     ADC_ChannelConfTypeDef channel_init;
     uint32_t request;
     uintptr_t dma_channel_base;
     IRQn_Type irq;
+    trigger_config trigger;
 
     DMA_Channel_TypeDef* dma_channel() const noexcept {
       return reinterpret_cast<DMA_Channel_TypeDef*>(dma_channel_base);
+    }
+
+    const continuous_trigger_config* continuous_trigger() const noexcept {
+      return std::get_if<continuous_trigger_config>(&trigger);
+    }
+
+    const timer_trigger_config* timer_trigger() const noexcept {
+      return std::get_if<timer_trigger_config>(&trigger);
+    }
+
+    static constexpr dma_backend_config continuous(
+        const ADC_InitTypeDef& init, const ADC_ChannelConfTypeDef& channel_init,
+        const uint32_t request, const uintptr_t dma_channel_base,
+        const IRQn_Type irq) noexcept {
+      return dma_backend_config{
+          .init = init,
+          .channel_init = channel_init,
+          .request = request,
+          .dma_channel_base = dma_channel_base,
+          .irq = irq,
+          .trigger = continuous_trigger_config{},
+      };
+    }
+
+    static constexpr dma_backend_config timer_triggered(
+        const ADC_InitTypeDef& init, const ADC_ChannelConfTypeDef& channel_init,
+        const uint32_t request, const uintptr_t dma_channel_base,
+        const IRQn_Type irq,
+        const timer_trigger_config& trigger) noexcept {
+      return dma_backend_config{
+          .init = init,
+          .channel_init = channel_init,
+          .request = request,
+          .dma_channel_base = dma_channel_base,
+          .irq = irq,
+          .trigger = trigger,
+      };
     }
   };
 

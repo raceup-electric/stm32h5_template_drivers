@@ -1,0 +1,88 @@
+CompileFlags:
+  # CompilationDatabase: .build/posix-debug
+  # CompilationDatabase: .build/posix-console
+  CompilationDatabase: .build/stm32h563vit6x-debug
+  # CompilationDatabase: .build/stm32h562rgt6-debug
+
+---
+If:
+  PathMatch: (^|.*/)app/.*
+CompileFlags:
+  # CompilationDatabase: .build/posix-debug
+  # CompilationDatabase: .build/posix-console
+  CompilationDatabase: .build/stm32h563vit6x-debug
+  # CompilationDatabase: .build/stm32h562rgt6-debug
+
+---
+If:
+  PathMatch: (^|.*/)lib/drivers/include/.*
+CompileFlags:
+  # CompilationDatabase: .build/posix-debug
+  # CompilationDatabase: .build/posix-console
+  CompilationDatabase: .build/stm32h563vit6x-debug
+  Compiler: /usr/bin/arm-none-eabi-g++
+  BuiltinHeaders: QueryDriver
+
+---
+If:
+  PathMatch: (^|.*/)instances/posix/.*
+CompileFlags:
+  CompilationDatabase: .build/posix-debug
+  # CompilationDatabase: .build/posix-console
+
+---
+If:
+  PathMatch: (^|.*/)instances/stm32/.*
+CompileFlags:
+  CompilationDatabase: .build/stm32h563vit6x-debug
+  # CompilationDatabase: .build/stm32h562rgt6-debug
+  Compiler: /usr/bin/arm-none-eabi-g++
+  BuiltinHeaders: QueryDriver
+
+---
+If:
+  PathMatch: (^|.*/)lib/drivers/instances/posix/.*
+CompileFlags:
+  CompilationDatabase: .build/posix-debug
+
+---
+If:
+  PathMatch: (^|.*/)lib/drivers/instances/console/.*
+CompileFlags:
+  CompilationDatabase: .build/posix-console
+  # CompilationDatabase: .build/posix-debug
+
+---
+If:
+  PathMatch: (^|.*/)lib/drivers/instances/stm32h5xx/.*
+CompileFlags:
+  CompilationDatabase: .build/stm32h563vit6x-debug
+  # CompilationDatabase: .build/stm32h562rgt6-debug
+  Compiler: /usr/bin/arm-none-eabi-g++
+  BuiltinHeaders: QueryDriver
+
+---
+If:
+  PathMatch: (^|.*/)third_party/expected/include/.*
+CompileFlags:
+  CompilationDatabase: .build/stm32h563vit6x-debug
+  Compiler: /usr/bin/arm-none-eabi-g++
+  BuiltinHeaders: QueryDriver
+
+---
+If:
+  PathMatch: (^|.*/)(lib/drivers/include|lib/drivers/instances/stm32h5xx|instances/stm32|third_party/expected/include)/.*
+CompileFlags:
+  Add:
+    - -isystem
+    - /usr/arm-none-eabi/include/c++/14.2.0
+    - -isystem
+    - /usr/arm-none-eabi/include/c++/14.2.0/arm-none-eabi
+    - -isystem
+    - /usr/arm-none-eabi/include/c++/14.2.0/backward
+    - -isystem
+    - /usr/lib/gcc/arm-none-eabi/14.2.0/include
+    - -isystem
+    - /usr/lib/gcc/arm-none-eabi/14.2.0/include-fixed
+    - -isystem
+    - /usr/arm-none-eabi/include

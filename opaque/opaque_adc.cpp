@@ -5,52 +5,48 @@
 using namespace ru::driver;
 
 namespace ru::driver {
-result opaque_adc::init(ADC_HandleTypeDef* const p_handle) const noexcept {
 
-  enable_adc_clock(m_p_instance);
-  init_pin(m_p_port, m_pin, GPIO_MODE_ANALOG, GPIO_NOPULL);
+void opaque_adc::start() noexcept{
+  __HAL_RCC_ADC_CLK_ENABLE();
+}
 
-  p_handle->Instance = m_p_instance;
-  p_handle->Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
-  p_handle->Init.Resolution = ADC_RESOLUTION_12B;
-  p_handle->Init.DataAlign = ADC_DATAALIGN_RIGHT;
-  p_handle->Init.ScanConvMode = ADC_SCAN_DISABLE;
-  p_handle->Init.EOCSelection = ADC_EOC_SINGLE_CONV;
-  p_handle->Init.LowPowerAutoWait = DISABLE;
-  p_handle->Init.ContinuousConvMode = DISABLE;
-  p_handle->Init.NbrOfConversion = 1U;
-  p_handle->Init.DiscontinuousConvMode = DISABLE;
-  p_handle->Init.NbrOfDiscConversion = 1U;
-  p_handle->Init.ExternalTrigConv = ADC_SOFTWARE_START;
-  p_handle->Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
-  p_handle->Init.SamplingMode = ADC_SAMPLING_MODE_NORMAL;
-  p_handle->Init.DMAContinuousRequests = DISABLE;
-  p_handle->Init.Overrun = ADC_OVR_DATA_OVERWRITTEN;
-  p_handle->Init.OversamplingMode = DISABLE;
+result opaque_adc::init(const stm32h5xx::cfg::adc_config& config) const noexcept {
+  const auto* const polling = config.polling();
+  if (m_p_handle == nullptr || polling == nullptr) {
+    return result::UNRECOVERABLE_ERROR;
+  }
+
+  init_pin(config.port(), config.pin_init);
+
+  auto* const p_handle = m_p_handle;
+  p_handle->Instance = config.instance();
+  p_handle->Init = polling->init;
 
   if (HAL_ADC_Init(p_handle) != HAL_OK) {
     return result::RECOVERABLE_ERROR;
   }
 
-  ADC_ChannelConfTypeDef channel{};
-  channel.Channel = m_channel;
-  channel.Rank = ADC_REGULAR_RANK_1;
-  channel.SamplingTime = ADC_SAMPLETIME_47CYCLES_5;
-  channel.SingleDiff = ADC_SINGLE_ENDED;
-  channel.OffsetNumber = ADC_OFFSET_NONE;
-  channel.Offset = 0U;
-  channel.OffsetSign = ADC_OFFSET_SIGN_NEGATIVE;
-  channel.OffsetSaturation = DISABLE;
+  auto channel = polling->channel_init;
 
   return from_hal_status(HAL_ADC_ConfigChannel(p_handle, &channel));
 }
 
-result opaque_adc::stop(ADC_HandleTypeDef* const p_handle) const noexcept {
+result opaque_adc::stop() const noexcept {
+  if (m_p_handle == nullptr) {
+    return result::RECOVERABLE_ERROR;
+  }
+
+  auto* const p_handle = m_p_handle;
   (void)HAL_ADC_Stop(p_handle);
   return from_hal_status(HAL_ADC_DeInit(p_handle));
 }
 
-result opaque_adc::read(ADC_HandleTypeDef* const p_handle, uint16_t& r_value) const noexcept {
+result opaque_adc::read(uint16_t& r_value) const noexcept {
+  if (m_p_handle == nullptr) {
+    return result::RECOVERABLE_ERROR;
+  }
+
+  auto* const p_handle = m_p_handle;
   if (HAL_ADC_Start(p_handle) != HAL_OK) {
     return result::RECOVERABLE_ERROR;
   }
@@ -65,9 +61,13 @@ result opaque_adc::read(ADC_HandleTypeDef* const p_handle, uint16_t& r_value) co
   return result::OK;
 }
 
-result opaque_adc::try_read(ADC_HandleTypeDef* const p_handle, bool& r_has_value,
-                            uint16_t& r_value) const noexcept {
+result opaque_adc::try_read(bool& r_has_value, uint16_t& r_value) const noexcept {
   r_has_value = false;
+  if (m_p_handle == nullptr) {
+    return result::RECOVERABLE_ERROR;
+  }
+
+  auto* const p_handle = m_p_handle;
 
   if (HAL_ADC_Start(p_handle) != HAL_OK) {
     return result::RECOVERABLE_ERROR;

@@ -6,39 +6,22 @@ using namespace ru::driver;
 
 namespace ru::driver {
 namespace {
-struct NvMemoryConfig {
-  NvMemoryBackend backend{NvMemoryBackend::None};
-  uint32_t arg0{0U};
-  uint32_t size{0U};
-};
-
-constexpr NvMemoryConfig make_config(const NvMemoryId id) noexcept {
+const stm32h5xx::cfg::nv_memory_config* config_for(const NvMemoryId id) noexcept {
   switch (id) {
-#define RU_STM32H5XX_NV_MEMORY_CASE(name, backend_kind, arg0_value, size_value) \
-    case NvMemoryId::name:                                                       \
-      return {NvMemoryBackend::backend_kind, static_cast<uint32_t>(arg0_value),  \
-              static_cast<uint32_t>(size_value)};
-    RU_STM32H5XX_NV_MEMORY_MAP(RU_STM32H5XX_NV_MEMORY_CASE)
-#undef RU_STM32H5XX_NV_MEMORY_CASE
+#define RU_STM32H5XX_NV_MEMORY_CONFIG(name, config) \
+    case NvMemoryId::name:                          \
+      return &config;
+    RU_STM32H5XX_NV_MEMORY_MAP(RU_STM32H5XX_NV_MEMORY_CONFIG)
+#undef RU_STM32H5XX_NV_MEMORY_CONFIG
     default:
-      return {};
+      return nullptr;
   }
 }
 
 opaque_nv_memory make_opaque(const NvMemoryId id) noexcept {
-  const auto config = make_config(id);
-
-  switch (config.backend) {
-    case NvMemoryBackend::EmulatedEeprom:
-      return opaque_nv_memory::make_emulated_eeprom(
-          static_cast<uint16_t>(config.arg0), config.size);
-
-    case NvMemoryBackend::FlashRegion:
-      return opaque_nv_memory::make_flash_region(config.arg0, config.size);
-
-    default:
-      return {};
-  }
+  const auto* const config = config_for(id);
+  return config != nullptr ? opaque_nv_memory{config->backend, config->arg0, config->size}
+                           : opaque_nv_memory{};
 }
 }  // namespace
 

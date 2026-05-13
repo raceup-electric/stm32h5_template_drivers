@@ -6,17 +6,27 @@ using namespace ru::driver;
 
 namespace ru::driver {
 namespace {
-constexpr opaque_gpio make_opaque(const GpioId id) noexcept {
+const stm32h5xx::cfg::gpio_config* config_for(const GpioId id) noexcept {
   switch (id) {
-#define RU_STM32H5XX_GPIO_CASE(name, port, pin, active_state, mode, pull, speed)         \
-    case GpioId::name:                                                                    \
-      return opaque_gpio{port, pin, active_state, mode, pull, speed};
-    RU_STM32H5XX_GPIO_MAP(RU_STM32H5XX_GPIO_CASE)
-#undef RU_STM32H5XX_GPIO_CASE
+#define RU_STM32H5XX_GPIO_CONFIG(name, config) \
+    case GpioId::name:                         \
+      return &config;
+    RU_STM32H5XX_GPIO_MAP(RU_STM32H5XX_GPIO_CONFIG)
+#undef RU_STM32H5XX_GPIO_CONFIG
     default:
-      return opaque_gpio{};
+      return nullptr;
   }
 }
+
+opaque_gpio make_opaque(const GpioId id) noexcept {
+  const auto* const config = config_for(id);
+  if (config == nullptr) {
+    return opaque_gpio{};
+  }
+
+  return opaque_gpio{config->port(), config->pin(), config->active_high};
+}
+
 }  // namespace
 
 Gpio::Gpio(const GpioId id) noexcept : m_id(id), m_opaque(make_opaque(id)) {
@@ -27,7 +37,12 @@ result Gpio::start() noexcept {
 }
 
 result Gpio::init() noexcept {
-  return m_opaque.init();
+  const auto* const config = config_for(m_id);
+  if (config == nullptr) {
+    return result::UNRECOVERABLE_ERROR;
+  }
+
+  return m_opaque.init(config->init);
 }
 
 result Gpio::stop() noexcept {
@@ -47,7 +62,12 @@ expected::expected<bool, result> Gpio::is_active() const noexcept {
 }
 
 expected::expected<bool, result> Gpio::is_inactive() const noexcept {
-  return !m_opaque.is_active();
+  const auto active = is_active();
+  if (!active.has_value()) {
+    return expected::unexpected(active.error());
+  }
+
+  return !active.value();
 }
 
 expected::expected<bool, result> Gpio::is_high() const noexcept {
@@ -55,7 +75,12 @@ expected::expected<bool, result> Gpio::is_high() const noexcept {
 }
 
 expected::expected<bool, result> Gpio::is_low() const noexcept {
-  return !m_opaque.is_high();
+  const auto high = is_high();
+  if (!high.has_value()) {
+    return expected::unexpected(high.error());
+  }
+
+  return !high.value();
 }
 
 result Gpio::set_active() noexcept {

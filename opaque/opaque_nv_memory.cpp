@@ -66,6 +66,15 @@ uint16_t word_count_for_capacity(const uint32_t capacity) noexcept {
   return static_cast<uint16_t>((capacity + 1U) / 2U);
 }
 
+bool config_is_emulated_eeprom(
+    const stm32h5xx::cfg::nv_memory_config::backend_kind backend) noexcept {
+  return backend == stm32h5xx::cfg::nv_memory_config::backend_kind::EmulatedEeprom;
+}
+
+uint16_t base_virtual_address(const uint32_t arg0) noexcept {
+  return static_cast<uint16_t>(arg0);
+}
+
 bool eeprom_config_valid(const uint16_t base_virtual_address,
                          const uint32_t capacity) noexcept {
   const auto words = word_count_for_capacity(capacity);
@@ -104,40 +113,36 @@ result eeprom_write_word(const uint16_t virtual_address, const uint16_t word) no
 }
 }  // namespace
 
-result opaque_nv_memory::init() noexcept {
+result opaque_nv_memory::init() const noexcept {
   if (m_capacity == 0U) {
     return result::UNRECOVERABLE_ERROR;
   }
 
-  switch (m_backend) {
-    case NvMemoryBackend::EmulatedEeprom:
-      return eeprom_config_valid(m_base_virtual_address, m_capacity)
-                 ? ensure_eeprom_initialized()
-                 : result::UNRECOVERABLE_ERROR;
-
-    case NvMemoryBackend::FlashRegion:
-    case NvMemoryBackend::None:
-    default:
-      return result::UNRECOVERABLE_ERROR;
+  if (config_is_emulated_eeprom(m_backend)) {
+    return eeprom_config_valid(base_virtual_address(m_arg0), m_capacity)
+               ? ensure_eeprom_initialized()
+               : result::UNRECOVERABLE_ERROR;
   }
+
+  return result::UNRECOVERABLE_ERROR;
 }
 
-result opaque_nv_memory::stop() noexcept {
+result opaque_nv_memory::stop() const noexcept {
   return result::OK;
 }
 
-result opaque_nv_memory::clear() noexcept {
-  if (m_backend != NvMemoryBackend::EmulatedEeprom) {
+result opaque_nv_memory::clear() const noexcept {
+  if (!config_is_emulated_eeprom(m_backend)) {
     return result::UNRECOVERABLE_ERROR;
   }
-  if (!eeprom_config_valid(m_base_virtual_address, m_capacity)) {
+  const auto config_base_virtual_address = base_virtual_address(m_arg0);
+  if (!eeprom_config_valid(config_base_virtual_address, m_capacity)) {
     return result::UNRECOVERABLE_ERROR;
   }
 
   const auto words = word_count_for_capacity(m_capacity);
   for (uint16_t word_index = 0U; word_index < words; ++word_index) {
-    const auto virtual_address =
-        static_cast<uint16_t>(m_base_virtual_address + word_index);
+    const auto virtual_address = static_cast<uint16_t>(config_base_virtual_address + word_index);
 
     uint16_t word{k_erased_word};
     auto status = eeprom_read_word(virtual_address, word);
@@ -160,10 +165,11 @@ result opaque_nv_memory::clear() noexcept {
 
 result opaque_nv_memory::read(const uint32_t address, uint8_t* const p_data,
                               const size_t len) const noexcept {
-  if (m_backend != NvMemoryBackend::EmulatedEeprom) {
+  if (!config_is_emulated_eeprom(m_backend)) {
     return result::UNRECOVERABLE_ERROR;
   }
-  if (!eeprom_config_valid(m_base_virtual_address, m_capacity) ||
+  const auto config_base_virtual_address = base_virtual_address(m_arg0);
+  if (!eeprom_config_valid(config_base_virtual_address, m_capacity) ||
       !range_valid(m_capacity, address, len) || (len != 0U && p_data == nullptr)) {
     return result::RECOVERABLE_ERROR;
   }
@@ -171,7 +177,7 @@ result opaque_nv_memory::read(const uint32_t address, uint8_t* const p_data,
   for (size_t index = 0U; index < len; ++index) {
     const auto byte_address = static_cast<uint32_t>(address + index);
     const auto virtual_address =
-        virtual_address_for(m_base_virtual_address, byte_address);
+        virtual_address_for(config_base_virtual_address, byte_address);
 
     uint16_t word{k_erased_word};
     const auto status = eeprom_read_word(virtual_address, word);
@@ -188,11 +194,12 @@ result opaque_nv_memory::read(const uint32_t address, uint8_t* const p_data,
 }
 
 result opaque_nv_memory::write(const uint32_t address, const uint8_t* const p_data,
-                               const size_t len) noexcept {
-  if (m_backend != NvMemoryBackend::EmulatedEeprom) {
+                               const size_t len) const noexcept {
+  if (!config_is_emulated_eeprom(m_backend)) {
     return result::UNRECOVERABLE_ERROR;
   }
-  if (!eeprom_config_valid(m_base_virtual_address, m_capacity) ||
+  const auto config_base_virtual_address = base_virtual_address(m_arg0);
+  if (!eeprom_config_valid(config_base_virtual_address, m_capacity) ||
       !range_valid(m_capacity, address, len) || (len != 0U && p_data == nullptr)) {
     return result::RECOVERABLE_ERROR;
   }
@@ -200,7 +207,7 @@ result opaque_nv_memory::write(const uint32_t address, const uint8_t* const p_da
   for (size_t index = 0U; index < len; ++index) {
     const auto byte_address = static_cast<uint32_t>(address + index);
     const auto virtual_address =
-        virtual_address_for(m_base_virtual_address, byte_address);
+        virtual_address_for(config_base_virtual_address, byte_address);
 
     uint16_t word{k_erased_word};
     auto status = eeprom_read_word(virtual_address, word);

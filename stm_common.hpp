@@ -84,6 +84,12 @@ inline void init_pin(GPIO_TypeDef* const p_port, const uint32_t pin,
   HAL_GPIO_Init(p_port, &init);
 }
 
+inline void init_pin(GPIO_TypeDef* const p_port, const GPIO_InitTypeDef& init) noexcept {
+  enable_gpio_clock(p_port);
+  auto init_copy = init;
+  HAL_GPIO_Init(p_port, &init_copy);
+}
+
 // TIMER BEACUSE YES
 
 static inline void enable_tim_clock(const TIM_TypeDef* instance) noexcept {
