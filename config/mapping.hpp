@@ -106,39 +106,31 @@ inline constexpr auto ADC_1 = adc_config::dma_config(
 }  // namespace adc
 
 namespace pwm {
-inline constexpr pwm_config PWM_0{
-    .instance_base = TIM2_BASE,
-    .port_base = GPIOA_BASE,
-    .channel = TIM_CHANNEL_4,
-    .counter_clock_hz = 1000000U,
-    .pin_init =
-        {
-            .Pin = GPIO_PIN_3,
-            .Mode = GPIO_MODE_AF_PP,
-            .Pull = GPIO_PULLUP,
-            .Speed = GPIO_SPEED_FREQ_VERY_HIGH,
-            .Alternate = GPIO_AF1_TIM2,
-        },
-    .init =
-        {
-            .Prescaler = 0U,
-            .CounterMode = TIM_COUNTERMODE_UP,
-            .Period = 0U,
-            .ClockDivision = TIM_CLOCKDIVISION_DIV1,
-            .RepetitionCounter = 0U,
-            .AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE,
-        },
-    .channel_init =
-        {
-            .OCMode = TIM_OCMODE_PWM1,
-            .Pulse = 0U,
-            .OCPolarity = TIM_OCPOLARITY_HIGH,
-            .OCNPolarity = TIM_OCNPOLARITY_HIGH,
-            .OCFastMode = TIM_OCFAST_DISABLE,
-            .OCIdleState = TIM_OCIDLESTATE_RESET,
-            .OCNIdleState = TIM_OCNIDLESTATE_RESET,
-        },
-};
+inline constexpr auto PWM_0 = pwm_config::general_purpose_config(
+    GPIOA_BASE, GPIO_PIN_3, GPIO_PULLUP, GPIO_AF1_TIM2,
+    {
+        .instance_base = TIM2_BASE,
+        .channel = TIM_CHANNEL_4,
+        .init =
+            {
+                .Prescaler = 0U,
+                .CounterMode = TIM_COUNTERMODE_UP,
+                .Period = 0U,
+                .ClockDivision = TIM_CLOCKDIVISION_DIV1,
+                .RepetitionCounter = 0U,
+                .AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE,
+            },
+        .channel_init =
+            {
+                .OCMode = TIM_OCMODE_PWM1,
+                .Pulse = 0U,
+                .OCPolarity = TIM_OCPOLARITY_HIGH,
+                .OCNPolarity = TIM_OCNPOLARITY_HIGH,
+                .OCFastMode = TIM_OCFAST_DISABLE,
+                .OCIdleState = TIM_OCIDLESTATE_RESET,
+                .OCNIdleState = TIM_OCNIDLESTATE_RESET,
+            },
+    });
 }  // namespace pwm
 
 namespace bx_can {

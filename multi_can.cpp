@@ -27,12 +27,12 @@ expected::expected<CanMessageTs, result> CanRx::try_read(Multi_fifo fifo) noexce
   return unrecoverable_expected<CanMessageTs>();
 }
 
-result CanTx::write(const CanFrameView& message) noexcept {
+result CanTx::write(const CanMessage message) noexcept {
   (void)message;
   return unrecoverable_result();
 }
 
-result CanTx::try_write(const CanFrameView& message) noexcept {
+result CanTx::try_write(const CanMessage message) noexcept {
   (void)message;
   return unrecoverable_result();
 }
@@ -72,12 +72,12 @@ expected::expected<CanMessageTs, result> Can::try_read(Multi_fifo fifo) noexcept
   return unrecoverable_expected<CanMessageTs>();
 }
 
-result Can::write(const CanFrameView& message) noexcept {
+result Can::write(const CanMessage message) noexcept {
   (void)message;
   return unrecoverable_result();
 }
 
-result Can::try_write(const CanFrameView& message) noexcept {
+result Can::try_write(const CanMessage message) noexcept {
   (void)message;
   return unrecoverable_result();
 }

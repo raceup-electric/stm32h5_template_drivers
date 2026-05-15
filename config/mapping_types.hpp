@@ -151,24 +151,74 @@ struct adc_config {
 };
 
 struct pwm_config {
-  uintptr_t instance_base;
   uintptr_t port_base;
-  uint32_t channel;
-  uint32_t counter_clock_hz;
-  GPIO_InitTypeDef pin_init;
-  TIM_Base_InitTypeDef init;
-  TIM_OC_InitTypeDef channel_init;
+  uint16_t pin;
+  uint32_t pull;
+  uint32_t alternate;
+  struct general_purpose_backend_config {
+    uintptr_t instance_base;
+    uint32_t channel;
+    TIM_Base_InitTypeDef init;
+    TIM_OC_InitTypeDef channel_init;
 
-  TIM_TypeDef* instance() const noexcept {
-    return reinterpret_cast<TIM_TypeDef*>(instance_base);
-  }
+    TIM_TypeDef* instance() const noexcept {
+      return reinterpret_cast<TIM_TypeDef*>(instance_base);
+    }
+  };
+
+  struct low_power_backend_config {
+    uintptr_t instance_base;
+    uint32_t source_clock_hz;
+    uint32_t channel;
+    LPTIM_InitTypeDef init;
+    LPTIM_OC_ConfigTypeDef channel_init;
+
+    LPTIM_TypeDef* instance() const noexcept {
+      return reinterpret_cast<LPTIM_TypeDef*>(instance_base);
+    }
+  };
+
+  using backend_config =
+      std::variant<general_purpose_backend_config, low_power_backend_config>;
+
+  backend_config backend;
 
   GPIO_TypeDef* port() const noexcept {
     return reinterpret_cast<GPIO_TypeDef*>(port_base);
   }
 
-  uint16_t pin() const noexcept {
-    return static_cast<uint16_t>(pin_init.Pin);
+  const general_purpose_backend_config* general_purpose() const noexcept {
+    return std::get_if<general_purpose_backend_config>(&backend);
+  }
+
+  const low_power_backend_config* low_power() const noexcept {
+    return std::get_if<low_power_backend_config>(&backend);
+  }
+
+  static constexpr pwm_config general_purpose_config(
+      const uintptr_t port_base, const uint16_t pin, const uint32_t pull,
+      const uint32_t alternate,
+      const general_purpose_backend_config& general_purpose) noexcept {
+    return pwm_config{
+        .port_base = port_base,
+        .pin = pin,
+        .pull = pull,
+        .alternate = alternate,
+        .backend = general_purpose,
+    };
+  }
+
+  static constexpr pwm_config low_power_config(
+      const uintptr_t port_base, const uint16_t pin, const uint32_t pull,
+      const uint32_t alternate,
+      const low_power_backend_config& low_power) noexcept {
+    return pwm_config{
+        .port_base = port_base,
+        .pin = pin,
+        .pull = pull,
+        .alternate = alternate,
+        .backend = low_power,
+    };
   }
 };
 

@@ -1,9 +1,8 @@
 #include "opaque_watchdog.hpp"
 
 #include <array>
-#include <cstdint>
 
-#include "utils/common.hpp"
+#include "stm_common.hpp"
 
 using namespace ru::driver;
 

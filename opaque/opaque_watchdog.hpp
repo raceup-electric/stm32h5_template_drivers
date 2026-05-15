@@ -4,7 +4,6 @@
 
 #include "common.hpp"
 #include "stm32h5xx_hal.h"
-#include "stm32h5xx_hal_iwdg.h"
 
 namespace ru::driver {
 class Watchdog;

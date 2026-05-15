@@ -3,7 +3,6 @@
 #include <cstdint>
 
 #include "common.hpp"
-#include "mapping_types.hpp"
 #include "stm32h5xx_hal.h"
 
 namespace ru::driver {

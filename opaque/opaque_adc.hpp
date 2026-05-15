@@ -3,9 +3,11 @@
 #include <cstdint>
 
 #include "common.hpp"
-#include "mapping_types.hpp"
-#include "stm32h5xx_hal.h"
-#include "stm32h5xx_hal_adc.h"
+#include "stm32h5xx_hal.h"  // IWYU pragma: keep
+
+namespace ru::driver::stm32h5xx::cfg {
+struct adc_config;
+}
 
 namespace ru::driver {
 

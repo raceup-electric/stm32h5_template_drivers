@@ -162,8 +162,8 @@ CanControllerState& state(const opaque_can& config) noexcept {
   return g_invalid_state;
 }
 
-constexpr bool instance_matches_key(const opaque_can& config,
-                                    FDCAN_GlobalTypeDef* const p_instance) noexcept {
+inline bool instance_matches_key(const opaque_can& config,
+                                 FDCAN_GlobalTypeDef* const p_instance) noexcept {
   return make_opaque(p_instance).m_key == config.m_key;
 }
 

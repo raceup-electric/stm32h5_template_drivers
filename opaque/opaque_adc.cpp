@@ -1,6 +1,7 @@
 #include "opaque_adc.hpp"
 
-#include "utils/common.hpp"
+#include "mapping_types.hpp"
+#include "stm_common.hpp"
 
 using namespace ru::driver;
 

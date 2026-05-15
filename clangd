@@ -63,6 +63,14 @@ CompileFlags:
 
 ---
 If:
+  PathMatch: (^|.*/)lib/drivers/instances/stm32h5xx/.*\.c$
+CompileFlags:
+  CompilationDatabase: .build/stm32h563vit6x-debug
+  Compiler: /usr/bin/arm-none-eabi-gcc
+  BuiltinHeaders: QueryDriver
+
+---
+If:
   PathMatch: (^|.*/)third_party/expected/include/.*
 CompileFlags:
   CompilationDatabase: .build/stm32h563vit6x-debug

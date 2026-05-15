@@ -1,5 +1,7 @@
 #include "common.hpp"
 
+#include "opaque_common.hpp"
+
 using namespace ru::driver;
 
 namespace ru::driver {

@@ -1,6 +1,5 @@
 #include "gpio.hpp"
 #include "mapping.hpp"
-#include "stm32h5xx_hal.h"
 
 using namespace ru::driver;
 

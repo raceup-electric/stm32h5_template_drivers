@@ -26,15 +26,70 @@ constexpr std::size_t pwm_index(const PwmId id) noexcept {
 
 constexpr uint32_t k_default_frequency_hz = 1000U;
 
-TIM_HandleTypeDef& pwm_handle(const PwmId id) noexcept {
-  static std::array<TIM_HandleTypeDef, static_cast<std::size_t>(PwmId::COUNT)> handles{};
+general_purpose_pwm_runtime_state& pwm_handle(const PwmId id) noexcept {
+  static std::array<general_purpose_pwm_runtime_state,
+                    static_cast<std::size_t>(PwmId::COUNT)>
+      handles{};
   const auto index = pwm_index(id);
   return index < handles.size() ? handles[index] : handles.front();
 }
 
+low_power_pwm_runtime_state& lptim_pwm_state(const PwmId id) noexcept {
+  static std::array<low_power_pwm_runtime_state,
+                    static_cast<std::size_t>(PwmId::COUNT)>
+      states{};
+  const auto index = pwm_index(id);
+  return index < states.size() ? states[index] : states.front();
+}
+
+bool pwm_initialized(const PwmId id, const stm32h5xx::cfg::pwm_config& config) noexcept {
+  if (config.general_purpose() != nullptr) {
+    return pwm_handle(id).p_handle != nullptr && pwm_handle(id).p_handle->Instance != nullptr;
+  }
+
+  if (config.low_power() != nullptr) {
+    return lptim_pwm_state(id).handle.Instance != nullptr;
+  }
+
+  return false;
+}
+
+void reset_pwm_state(const PwmId id, const stm32h5xx::cfg::pwm_config& config) noexcept {
+  if (config.general_purpose() != nullptr) {
+    if (pwm_handle(id).p_handle != nullptr) {
+      pwm_handle(id).p_handle->Instance = nullptr;
+    }
+  } else if (config.low_power() != nullptr) {
+    lptim_pwm_state(id).handle.Instance = nullptr;
+  }
+}
+
 opaque_pwm make_opaque(const PwmId id) noexcept {
   const auto* const config = config_for(id);
-  return config != nullptr ? opaque_pwm{&pwm_handle(id), config->channel} : opaque_pwm{};
+  if (config == nullptr) {
+    return {};
+  }
+
+  if (const auto* const general_purpose = config->general_purpose();
+      general_purpose != nullptr) {
+    static std::array<TIM_HandleTypeDef, static_cast<std::size_t>(PwmId::COUNT)> tim_handles{};
+    const auto index = pwm_index(id);
+    auto& runtime = pwm_handle(id);
+    runtime.p_handle = index < tim_handles.size() ? &tim_handles[index] : &tim_handles.front();
+    return opaque_pwm{opaque_general_purpose_pwm{
+        .p_state = &runtime,
+        .channel = general_purpose->channel,
+    }};
+  }
+
+  if (const auto* const low_power = config->low_power(); low_power != nullptr) {
+    return opaque_pwm{opaque_low_power_pwm{
+        .p_state = &lptim_pwm_state(id),
+        .channel = low_power->channel,
+    }};
+  }
+
+  return {};
 }
 
 }  // namespace
@@ -52,8 +107,7 @@ result Pwm::init() noexcept {
     return result::UNRECOVERABLE_ERROR;
   }
 
-  auto& handle = pwm_handle(m_id);
-  if (handle.Instance != nullptr) {
+  if (pwm_initialized(m_id, *config)) {
     return result::OK;
   }
 
@@ -66,7 +120,6 @@ result Pwm::stop() noexcept {
     return result::UNRECOVERABLE_ERROR;
   }
 
-  auto& handle = pwm_handle(m_id);
   const auto stop_status = m_opaque.disable();
   if (stop_status != result::OK) {
     return stop_status;
@@ -74,7 +127,7 @@ result Pwm::stop() noexcept {
 
   const auto deinit_status = m_opaque.deinit();
   if (deinit_status == result::OK) {
-    handle.Instance = nullptr;
+    reset_pwm_state(m_id, *config);
   }
 
   return deinit_status;
@@ -94,12 +147,10 @@ result Pwm::set_frequency(const uint32_t frequency_hz) noexcept {
     return result::UNRECOVERABLE_ERROR;
   }
 
-  auto& handle = pwm_handle(m_id);
-  if (handle.Instance == nullptr) {
+  if (!pwm_initialized(m_id, *config)) {
     return result::RECOVERABLE_ERROR;
   }
 
-  const auto clamped_frequency_hz = std::max<uint32_t>(frequency_hz, 1U);
   const auto was_enabled = m_opaque.is_enabled();
   const auto duty_cycle = m_opaque.get_duty_cycle();
   if (!duty_cycle.has_value()) {
@@ -117,8 +168,8 @@ result Pwm::set_frequency(const uint32_t frequency_hz) noexcept {
       return deinit_status;
     }
 
-    handle.Instance = nullptr;
-    return m_opaque.init(*config, clamped_frequency_hz);
+    reset_pwm_state(m_id, *config);
+    return m_opaque.init(*config, frequency_hz);
   }
 
   const auto stop_status = m_opaque.disable();
@@ -126,7 +177,7 @@ result Pwm::set_frequency(const uint32_t frequency_hz) noexcept {
     return stop_status;
   }
 
-  const auto init_status = m_opaque.init(*config, clamped_frequency_hz);
+  const auto init_status = m_opaque.init(*config, frequency_hz);
   if (init_status != result::OK) {
     return init_status;
   }
@@ -140,9 +191,14 @@ result Pwm::set_frequency(const uint32_t frequency_hz) noexcept {
 }
 
 result Pwm::set_duty_cycle(const uint16_t duty_cycle_permille) noexcept {
+  const auto* const config = config_for(m_id);
+  if (config == nullptr) {
+    return result::UNRECOVERABLE_ERROR;
+  }
+
   const auto clamped_duty_cycle =
       static_cast<uint16_t>(std::min<uint16_t>(duty_cycle_permille, 1000U));
-  if (pwm_handle(m_id).Instance == nullptr) {
+  if (!pwm_initialized(m_id, *config)) {
     return result::RECOVERABLE_ERROR;
   }
 

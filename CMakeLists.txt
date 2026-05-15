@@ -23,6 +23,7 @@ list(REMOVE_ITEM DRIVERS_INSTANCE_SOURCES
 list(APPEND DRIVERS_INSTANCE_SOURCES
   "${STM32H5_DRIVERS_ROOT}/eeprom_itf_crc_stm32h5.cpp"
   "${STM32H5_DRIVERS_ROOT}/eeprom_itf_flash_stm32h5.cpp"
+  "${STM32CubeH5_HAL_SOURCE_DIR}/stm32h5xx_hal_lptim.c"
   "${STM32_EEPROM_EMULATION_ROOT}/core/eeprom_emul_core.c"
   "${STM32_EEPROM_EMULATION_ROOT}/core/algo/eeprom_algo_flitf.c"
   "${STM32H5_DRIVERS_ROOT}/usb/usb_cdc_standalone.c"

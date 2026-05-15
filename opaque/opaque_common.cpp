@@ -1,4 +1,4 @@
-#include "common.hpp"
+#include "opaque_common.hpp"
 
 #include "stm_common.hpp"
 

@@ -1,7 +1,5 @@
 #include "opaque_gpio.hpp"
 
-#include <stm32h5xx_hal_gpio.h>
-
 #include <cassert>
 
 #include "stm_common.hpp"

@@ -6,16 +6,6 @@
 
 using namespace ru::driver;
 
-namespace {
-#define RU_STM32H5XX_M_CAN_ID_VALUE(name) M_canId::name,
-constexpr auto k_m_can_ids =
-    std::array<M_canId, static_cast<std::size_t>(M_canId::COUNT)>{
-        M_CAN_LIST(RU_STM32H5XX_M_CAN_ID_VALUE)};
-#undef RU_STM32H5XX_M_CAN_ID_VALUE
-
-constexpr M_canId k_default_m_can_id = k_m_can_ids[0U];
-}  // namespace
-
 namespace ru::driver {
 using namespace can_internal;
 
@@ -27,11 +17,11 @@ expected::expected<CanMessageTs, result> M_canRx::try_read(M_fifo fifo) noexcept
   return const_cast<M_can&>(m_can).try_read(fifo);
 }
 
-result M_canTx::write(const CanFrameView& message) noexcept {
+result M_canTx::write(const CanMessage& message) noexcept {
   return const_cast<M_can&>(m_can).write(message);
 }
 
-result M_canTx::try_write(const CanFrameView& message) noexcept {
+result M_canTx::try_write(const CanMessage& message) noexcept {
   return const_cast<M_can&>(m_can).try_write(message);
 }
 
@@ -40,22 +30,6 @@ M_can::M_can(const M_canId id) noexcept : m_id(id), m_opaque(make_opaque(id)) {
 
 result M_can::start() noexcept {
   return result::OK;
-}
-
-result M_can::configure(const CanControllerConfig& config) noexcept {
-  return configure(k_default_m_can_id, config);
-}
-
-result M_can::configure(const M_canId id, const CanControllerConfig& config) noexcept {
-  return configure_controller(make_opaque(id), config);
-}
-
-CanControllerConfig M_can::configuration() noexcept {
-  return configuration(k_default_m_can_id);
-}
-
-CanControllerConfig M_can::configuration(const M_canId id) noexcept {
-  return current_controller_config(make_opaque(id));
 }
 
 result M_can::init() noexcept {
@@ -79,11 +53,11 @@ expected::expected<CanMessageTs, result> M_can::try_read(M_fifo fifo) noexcept {
   return read(fifo);
 }
 
-result M_can::write(const CanFrameView& message) noexcept {
+result M_can::write(const CanMessage& message) noexcept {
   return write_controller_message(m_opaque, message);
 }
 
-result M_can::try_write(const CanFrameView& message) noexcept {
+result M_can::try_write(const CanMessage& message) noexcept {
   if (!initialized(m_opaque) || !started(m_opaque)) {
     return result::RECOVERABLE_ERROR;
   }

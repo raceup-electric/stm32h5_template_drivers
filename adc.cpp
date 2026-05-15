@@ -4,7 +4,11 @@
 #include "adc.hpp"
 #include "mapping.hpp"
 #include "opaque_adc.hpp"
-#include "utils/common.hpp"
+#include "stm_common.hpp"
+#include "stm32h5xx_hal_adc_ex.h"
+#include "stm32h5xx_hal_dma_ex.h"
+#include "stm32h5xx_hal_tim.h"
+#include "stm32h5xx_hal_tim_ex.h"
 
 using namespace ru::driver;
 
@@ -20,8 +24,9 @@ constexpr std::size_t k_dma_buffer_capacity =
     (k_adc_count == 0U ? 1U : k_adc_count) * k_dma_frames;
 constexpr std::size_t k_dma_backend_count = 2U;
 
-uint32_t timer_prescaler(const uint32_t counter_clock_hz) noexcept {
-  const auto timer_clock_hz = SystemCoreClock == 0U ? 64000000U : SystemCoreClock;
+uint32_t timer_prescaler(const TIM_TypeDef* instance,
+                         const uint32_t counter_clock_hz) noexcept {
+  const auto timer_clock_hz = timer_input_clock_hz(instance);
   const auto target_counter_clock_hz = counter_clock_hz == 0U ? 1U : counter_clock_hz;
   return timer_clock_hz > target_counter_clock_hz
              ? (timer_clock_hz / target_counter_clock_hz) - 1U
@@ -242,7 +247,8 @@ bool init_trigger_timer(
   timer_handle = {};
   timer_handle.Instance = trigger.timer_instance();
   timer_handle.Init = trigger.timer_init;
-  timer_handle.Init.Prescaler = timer_prescaler(trigger.counter_clock_hz);
+  timer_handle.Init.Prescaler =
+      timer_prescaler(trigger.timer_instance(), trigger.counter_clock_hz);
   timer_handle.Init.Period =
       timer_period(trigger.counter_clock_hz, trigger.frequency_hz);
 

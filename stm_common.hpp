@@ -1,13 +1,9 @@
 #pragma once
 
-#include <common.hpp>
+#include "common.hpp"
 #include <cstdint>
 
 #include "stm32h5xx_hal.h"
-#include "stm32h5xx_hal_adc_ex.h"
-#include "stm32h5xx_hal_gpio.h"
-#include "stm32h5xx_hal_gpio_ex.h"
-#include "stm32h5xx_hal_uart_ex.h"
 
 namespace ru::driver {
 
@@ -139,6 +135,52 @@ static inline void enable_tim_clock(const TIM_TypeDef* instance) noexcept {
     default:
       break;
   }
+}
+
+static inline void enable_lptim_clock(const LPTIM_TypeDef* instance) noexcept {
+  switch (reinterpret_cast<uintptr_t>(instance)) {
+    case LPTIM1_BASE:
+      __HAL_RCC_LPTIM1_CLK_ENABLE();
+      break;
+    case LPTIM2_BASE:
+      __HAL_RCC_LPTIM2_CLK_ENABLE();
+      break;
+    case LPTIM3_BASE:
+      __HAL_RCC_LPTIM3_CLK_ENABLE();
+      break;
+    case LPTIM4_BASE:
+      __HAL_RCC_LPTIM4_CLK_ENABLE();
+      break;
+    case LPTIM5_BASE:
+      __HAL_RCC_LPTIM5_CLK_ENABLE();
+      break;
+    default:
+      break;
+  }
+}
+
+inline bool is_apb2_timer(const TIM_TypeDef* instance) noexcept {
+  return instance == TIM1 || instance == TIM8 || instance == TIM15 ||
+         instance == TIM16 || instance == TIM17;
+}
+
+inline uint32_t timer_input_clock_hz(const TIM_TypeDef* instance) noexcept {
+  RCC_ClkInitTypeDef clock_config{};
+  uint32_t flash_latency = 0U;
+  HAL_RCC_GetClockConfig(&clock_config, &flash_latency);
+
+  const auto pclk_hz = is_apb2_timer(instance) ? HAL_RCC_GetPCLK2Freq() : HAL_RCC_GetPCLK1Freq();
+  if (pclk_hz == 0U) {
+    return SystemCoreClock == 0U ? 64000000U : SystemCoreClock;
+  }
+
+  const auto divider = is_apb2_timer(instance) ? clock_config.APB2CLKDivider
+                                               : clock_config.APB1CLKDivider;
+  return divider == RCC_HCLK_DIV1 ? pclk_hz : (pclk_hz * 2U);
+}
+
+inline uint32_t timer_auto_reload_max(const TIM_TypeDef* instance) noexcept {
+  return instance == TIM2 ? 0xFFFFFFFFU : 0xFFFFU;
 }
 
 }  // namespace ru::driver

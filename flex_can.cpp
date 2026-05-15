@@ -40,12 +40,12 @@ expected::expected<CanMessageTs, result> Flex_can::try_read(uint8_t mb) noexcept
   return unrecoverable_expected<CanMessageTs>();
 }
 
-result Flex_can::write(const CanFrameView& message) noexcept {
+result Flex_can::write(const CanMessage& message) noexcept {
   (void)message;
   return unrecoverable_result();
 }
 
-result Flex_can::try_write(const CanFrameView& message) noexcept {
+result Flex_can::try_write(const CanMessage& message) noexcept {
   (void)message;
   return unrecoverable_result();
 }
@@ -212,11 +212,11 @@ expected::expected<bool, result> Flex_canRx::is_filter_enabled(uint8_t id) {
   return const_cast<Flex_can&>(m_can).is_filter_enabled(id);
 }
 
-result Flex_canTx::write(const CanFrameView& message) noexcept {
+result Flex_canTx::write(const CanMessage& message) noexcept {
   return const_cast<Flex_can&>(m_can).write(message);
 }
 
-result Flex_canTx::try_write(const CanFrameView& message) noexcept {
+result Flex_canTx::try_write(const CanMessage& message) noexcept {
   return const_cast<Flex_can&>(m_can).try_write(message);
 }
 
