@@ -18,12 +18,6 @@ constexpr std::size_t adc_index(const AdcId id) noexcept {
   return static_cast<std::size_t>(id);
 }
 
-constexpr std::size_t k_adc_count = static_cast<std::size_t>(AdcId::COUNT);
-constexpr std::size_t k_dma_frames = 256U;
-constexpr std::size_t k_dma_buffer_capacity =
-    (k_adc_count == 0U ? 1U : k_adc_count) * k_dma_frames;
-constexpr std::size_t k_dma_backend_count = 2U;
-
 uint32_t timer_prescaler(const TIM_TypeDef* instance,
                          const uint32_t counter_clock_hz) noexcept {
   const auto timer_clock_hz = timer_input_clock_hz(instance);
@@ -42,15 +36,10 @@ uint32_t timer_period(const uint32_t counter_clock_hz,
   return period_ticks - 1U;
 }
 
-struct adc_dma_channel_config {
-  AdcId id;
-  stm32h5xx::cfg::adc_config mapping;
-};
-
 ADC_HandleTypeDef& adc_handle(const AdcId id) noexcept {
-  static std::array<ADC_HandleTypeDef, k_adc_count> handles{};
+  static std::array<ADC_HandleTypeDef, stm32h5xx::cfg::adc::COUNT> handles{};
   static ADC_HandleTypeDef dummy_handle{};
-  if constexpr (k_adc_count == 0U) {
+  if constexpr (stm32h5xx::cfg::adc::COUNT == 0U) {
     (void)id;
     return dummy_handle;
   }
@@ -63,23 +52,16 @@ opaque_adc make_opaque(const AdcId id) noexcept {
   return opaque_adc{&adc_handle(id)};
 }
 
-constexpr std::array<adc_dma_channel_config, k_adc_count> k_adc_dma_configs = {
-#define RU_STM32H5XX_ADC_DMA_ENTRY(name, config) \
-  adc_dma_channel_config{AdcId::name, config},
-    RU_STM32H5XX_ADC_MAP(RU_STM32H5XX_ADC_DMA_ENTRY)
-#undef RU_STM32H5XX_ADC_DMA_ENTRY
-};
-
 struct dma_adc_backend {
   ADC_HandleTypeDef adc_handle{};
   TIM_HandleTypeDef trigger_timer_handle{};
   DMA_NodeTypeDef dma_node{};
   DMA_QListTypeDef dma_queue{};
   DMA_HandleTypeDef dma_channel_handle{};
-  std::array<uint16_t, k_dma_buffer_capacity> dma_buffer{};
-  std::array<AdcId, k_adc_count> ids{};
-  std::array<uint64_t, k_adc_count> sums{};
-  std::array<uint32_t, k_adc_count> sample_counts{};
+  std::array<uint16_t, stm32h5xx::cfg::adc::DMA_BUFFER_CAPACITY> dma_buffer{};
+  std::array<AdcId, stm32h5xx::cfg::adc::COUNT> ids{};
+  std::array<uint64_t, stm32h5xx::cfg::adc::COUNT> sums{};
+  std::array<uint32_t, stm32h5xx::cfg::adc::COUNT> sample_counts{};
   std::size_t channel_count{0U};
   std::size_t active_buffer_length{0U};
   std::size_t processed_samples_in_cycle{0U};
@@ -87,38 +69,36 @@ struct dma_adc_backend {
   bool running{false};
 };
 
-std::array<dma_adc_backend, k_dma_backend_count>& dma_backends() noexcept {
-  static std::array<dma_adc_backend, k_dma_backend_count> backends{};
+std::array<dma_adc_backend, stm32h5xx::cfg::adc::DMA_BACKEND_COUNT>&
+dma_backends() noexcept {
+  static std::array<dma_adc_backend, stm32h5xx::cfg::adc::DMA_BACKEND_COUNT>
+      backends{};
   return backends;
 }
 
-const adc_dma_channel_config* adc_config(const AdcId id) noexcept {
-  for (const auto& config : k_adc_dma_configs) {
-    if (config.id == id) {
-      return &config;
+const stm32h5xx::cfg::adc::named_config* dma_adc_config(const AdcId id) noexcept {
+  const auto* const config = stm32h5xx::cfg::adc::config_for(id);
+  if (config == nullptr || !config->uses_dma()) {
+    return nullptr;
+  }
+
+  for (const auto& named_config : stm32h5xx::cfg::adc::CONFIGS) {
+    if (named_config.id == id) {
+      return &named_config;
     }
   }
 
   return nullptr;
 }
 
-const adc_dma_channel_config* dma_adc_config(const AdcId id) noexcept {
-  const auto* const config = adc_config(id);
-  if (config == nullptr || !config->mapping.uses_dma()) {
-    return nullptr;
-  }
-
-  return config;
-}
-
 dma_adc_backend* dma_backend_for_instance(ADC_TypeDef* const p_instance) noexcept {
   auto& backends = dma_backends();
-  for (std::size_t index = 0U; index < k_adc_dma_configs.size(); ++index) {
-    if (!k_adc_dma_configs[index].mapping.uses_dma()) {
+  for (std::size_t index = 0U; index < stm32h5xx::cfg::adc::CONFIGS.size(); ++index) {
+    if (!stm32h5xx::cfg::adc::CONFIGS[index].config.uses_dma()) {
       continue;
     }
 
-    if (k_adc_dma_configs[index].mapping.instance() == p_instance) {
+    if (stm32h5xx::cfg::adc::CONFIGS[index].config.instance() == p_instance) {
       return &backends[index];
     }
   }
@@ -132,7 +112,7 @@ dma_adc_backend* running_dma_backend_for(const AdcId id) noexcept {
     return nullptr;
   }
 
-  auto* const backend = dma_backend_for_instance(config->mapping.instance());
+  auto* const backend = dma_backend_for_instance(config->config.instance());
   if (backend == nullptr || !backend->running) {
     return nullptr;
   }
@@ -168,7 +148,7 @@ void accumulate_dma_samples(dma_adc_backend& backend, const std::size_t begin_sa
   for (std::size_t sample = begin; sample < end; ++sample) {
     const auto rank = sample % backend.channel_count;
     const auto channel = adc_index(backend.ids[rank]);
-    if (channel < k_adc_count) {
+    if (channel < stm32h5xx::cfg::adc::COUNT) {
       backend.sums[channel] += backend.dma_buffer[sample];
       backend.sample_counts[channel] += 1U;
     }
@@ -185,10 +165,11 @@ void accumulate_dma_until(dma_adc_backend& backend, const std::size_t boundary) 
 }
 
 bool prepare_adc_channels(dma_adc_backend& backend,
-                          ADC_TypeDef* const p_instance) noexcept {
+                          ADC_TypeDef* const p_instance,
+                          const std::size_t frame_count) noexcept {
   std::size_t rank = 0U;
-  for (const auto& config : k_adc_dma_configs) {
-    if (!config.mapping.uses_dma() || config.mapping.instance() != p_instance) {
+  for (const auto& config : stm32h5xx::cfg::adc::CONFIGS) {
+    if (!config.config.uses_dma() || config.config.instance() != p_instance) {
       continue;
     }
 
@@ -196,13 +177,14 @@ bool prepare_adc_channels(dma_adc_backend& backend,
       return false;
     }
 
-    init_pin(config.mapping.port(), config.mapping.pin_init);
+    init_pin(config.config.port(), config.config.pin_init);
     backend.ids[rank] = config.id;
     ++rank;
   }
 
   backend.channel_count = rank;
-  backend.active_buffer_length = backend.channel_count * k_dma_frames;
+  backend.active_buffer_length =
+      backend.channel_count * (frame_count == 0U ? 1U : frame_count);
   return backend.channel_count != 0U &&
          backend.active_buffer_length <= backend.dma_buffer.size();
 }
@@ -210,8 +192,8 @@ bool prepare_adc_channels(dma_adc_backend& backend,
 bool configure_adc_channels(dma_adc_backend& backend,
                             ADC_TypeDef* const p_instance) noexcept {
   std::size_t rank = 0U;
-  for (const auto& config : k_adc_dma_configs) {
-    if (!config.mapping.uses_dma() || config.mapping.instance() != p_instance) {
+  for (const auto& config : stm32h5xx::cfg::adc::CONFIGS) {
+    if (!config.config.uses_dma() || config.config.instance() != p_instance) {
       continue;
     }
 
@@ -219,7 +201,7 @@ bool configure_adc_channels(dma_adc_backend& backend,
       return false;
     }
 
-    const auto* const dma = config.mapping.dma();
+    const auto* const dma = config.config.dma();
     if (dma == nullptr) {
       return false;
     }
@@ -278,7 +260,7 @@ bool start_trigger_timer(dma_adc_backend& backend) noexcept {
 }
 
 bool start_dma_backend(const AdcId id) noexcept {
-  if constexpr (k_adc_count == 0U) {
+  if constexpr (stm32h5xx::cfg::adc::COUNT == 0U) {
     (void)id;
     return false;
   }
@@ -287,12 +269,12 @@ bool start_dma_backend(const AdcId id) noexcept {
   if (input_config == nullptr) {
     return false;
   }
-  const auto* const dma = input_config->mapping.dma();
+  const auto* const dma = input_config->config.dma();
   if (dma == nullptr) {
     return false;
   }
 
-  auto* const p_backend = dma_backend_for_instance(input_config->mapping.instance());
+  auto* const p_backend = dma_backend_for_instance(input_config->config.instance());
   if (p_backend == nullptr) {
     return false;
   }
@@ -307,7 +289,7 @@ bool start_dma_backend(const AdcId id) noexcept {
   __HAL_RCC_ADC_CLK_ENABLE();
   __HAL_RCC_GPDMA1_CLK_ENABLE();
 
-  if (!prepare_adc_channels(backend, input_config->mapping.instance())) {
+  if (!prepare_adc_channels(backend, input_config->config.instance(), dma->frame_count)) {
     return false;
   }
 
@@ -359,7 +341,7 @@ bool start_dma_backend(const AdcId id) noexcept {
   HAL_NVIC_SetPriority(dma->irq, 6U, 0U);
   HAL_NVIC_EnableIRQ(dma->irq);
 
-  backend.adc_handle.Instance = input_config->mapping.instance();
+  backend.adc_handle.Instance = input_config->config.instance();
   backend.adc_handle.Init = dma->init;
   backend.adc_handle.Init.ScanConvMode =
       backend.channel_count > 1U ? ADC_SCAN_ENABLE : ADC_SCAN_DISABLE;
@@ -373,7 +355,7 @@ bool start_dma_backend(const AdcId id) noexcept {
     return false;
   }
 
-  if (!configure_adc_channels(backend, input_config->mapping.instance())) {
+  if (!configure_adc_channels(backend, input_config->config.instance())) {
     return false;
   }
 
@@ -415,7 +397,7 @@ expected::expected<uint16_t, result> read_dma_average(const AdcId id) noexcept {
 
   auto& backend = *p_backend;
   const auto channel = adc_index(id);
-  if (channel >= k_adc_count) {
+  if (channel >= stm32h5xx::cfg::adc::COUNT) {
     return expected::unexpected(result::RECOVERABLE_ERROR);
   }
 
@@ -442,7 +424,7 @@ expected::expected<std::optional<uint16_t>, result> try_read_dma_average(
 
   auto& backend = *p_backend;
   const auto channel = adc_index(id);
-  if (channel >= k_adc_count) {
+  if (channel >= stm32h5xx::cfg::adc::COUNT) {
     return expected::unexpected(result::RECOVERABLE_ERROR);
   }
 
@@ -470,12 +452,12 @@ Adc::Adc(const AdcId id) noexcept : m_id(id), m_opaque(make_opaque(id)) {
 }
 
 result Adc::init() noexcept {
-  const auto* const config = adc_config(m_id);
+  const auto* const config = stm32h5xx::cfg::adc::config_for(m_id);
   if (config == nullptr) {
     return result::UNRECOVERABLE_ERROR;
   }
 
-  if (config->mapping.uses_dma()) {
+  if (config->uses_dma()) {
     return start_dma_backend(m_id) ? result::OK : result::RECOVERABLE_ERROR;
   }
 
@@ -484,7 +466,7 @@ result Adc::init() noexcept {
     return result::OK;
   }
 
-  return m_opaque.init(config->mapping);
+  return m_opaque.init(*config);
 }
 
 result Adc::stop() noexcept {

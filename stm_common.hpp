@@ -13,12 +13,10 @@ constexpr result from_hal_status(const HAL_StatusTypeDef status) noexcept {
   switch (status) {
     case HAL_OK:
       return result::OK;
-    case HAL_ERROR:
-      return result::UNRECOVERABLE_ERROR;
     case HAL_BUSY:
-      return result::RECOVERABLE_ERROR;
     case HAL_TIMEOUT:
       return result::RECOVERABLE_ERROR;
+    case HAL_ERROR:
     default:
       return result::UNRECOVERABLE_ERROR;
   }

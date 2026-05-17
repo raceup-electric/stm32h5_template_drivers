@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <stdint.h>
 #include <variant>
 
@@ -50,6 +51,7 @@ struct adc_config {
 
     ADC_InitTypeDef init;
     ADC_ChannelConfTypeDef channel_init;
+    std::size_t frame_count;
     uint32_t request;
     uintptr_t dma_channel_base;
     IRQn_Type irq;
@@ -59,21 +61,22 @@ struct adc_config {
       return reinterpret_cast<DMA_Channel_TypeDef*>(dma_channel_base);
     }
 
-    const continuous_trigger_config* continuous_trigger() const noexcept {
+    constexpr const continuous_trigger_config* continuous_trigger() const noexcept {
       return std::get_if<continuous_trigger_config>(&trigger);
     }
 
-    const timer_trigger_config* timer_trigger() const noexcept {
+    constexpr const timer_trigger_config* timer_trigger() const noexcept {
       return std::get_if<timer_trigger_config>(&trigger);
     }
 
     static constexpr dma_backend_config continuous(
         const ADC_InitTypeDef& init, const ADC_ChannelConfTypeDef& channel_init,
-        const uint32_t request, const uintptr_t dma_channel_base,
-        const IRQn_Type irq) noexcept {
+        const std::size_t frame_count, const uint32_t request,
+        const uintptr_t dma_channel_base, const IRQn_Type irq) noexcept {
       return dma_backend_config{
           .init = init,
           .channel_init = channel_init,
+          .frame_count = frame_count,
           .request = request,
           .dma_channel_base = dma_channel_base,
           .irq = irq,
@@ -83,12 +86,13 @@ struct adc_config {
 
     static constexpr dma_backend_config timer_triggered(
         const ADC_InitTypeDef& init, const ADC_ChannelConfTypeDef& channel_init,
-        const uint32_t request, const uintptr_t dma_channel_base,
-        const IRQn_Type irq,
+        const std::size_t frame_count, const uint32_t request,
+        const uintptr_t dma_channel_base, const IRQn_Type irq,
         const timer_trigger_config& trigger) noexcept {
       return dma_backend_config{
           .init = init,
           .channel_init = channel_init,
+          .frame_count = frame_count,
           .request = request,
           .dma_channel_base = dma_channel_base,
           .irq = irq,
@@ -116,15 +120,15 @@ struct adc_config {
     return static_cast<uint16_t>(pin_init.Pin);
   }
 
-  const polling_backend_config* polling() const noexcept {
+  constexpr const polling_backend_config* polling() const noexcept {
     return std::get_if<polling_backend_config>(&backend);
   }
 
-  const dma_backend_config* dma() const noexcept {
+  constexpr const dma_backend_config* dma() const noexcept {
     return std::get_if<dma_backend_config>(&backend);
   }
 
-  bool uses_dma() const noexcept { return dma() != nullptr; }
+  constexpr bool uses_dma() const noexcept { return dma() != nullptr; }
 
   static constexpr adc_config polling_config(
       const uintptr_t instance_base, const uintptr_t port_base,

@@ -1,5 +1,8 @@
 #pragma once
 
+#include <array>
+
+#include "adc_id.hpp"
 #include "mapping_types.hpp"
 
 namespace ru::driver::stm32h5xx::cfg {
@@ -20,6 +23,11 @@ inline constexpr gpio_config DEBUG_LED{
 }  // namespace gpio
 
 namespace adc {
+struct named_config {
+  AdcId id;
+  adc_config config;
+};
+
 inline constexpr auto ADC_0 = adc_config::polling_config(
     ADC1_BASE, GPIOA_BASE,
     {
@@ -102,7 +110,55 @@ inline constexpr auto ADC_1 = adc_config::dma_config(
             .OffsetSign = ADC_OFFSET_SIGN_NEGATIVE,
             .OffsetSaturation = DISABLE,
         },
+        256U,
         GPDMA1_REQUEST_ADC2, GPDMA1_Channel1_BASE, GPDMA1_Channel1_IRQn));
+
+inline constexpr std::array<named_config, static_cast<std::size_t>(AdcId::COUNT)>
+    CONFIGS{{
+        {AdcId::ADC_0, ADC_0},
+        {AdcId::ADC_1, ADC_1},
+    }};
+
+inline constexpr std::size_t COUNT = CONFIGS.size();
+
+constexpr const adc_config* config_for(const AdcId id) noexcept {
+  for (const auto& config : CONFIGS) {
+    if (config.id == id) {
+      return &config.config;
+    }
+  }
+
+  return nullptr;
+}
+
+constexpr std::size_t dma_backend_count() noexcept {
+  std::size_t count = 0U;
+  for (const auto& config : CONFIGS) {
+    if (config.config.uses_dma()) {
+      ++count;
+    }
+  }
+  return count;
+}
+
+constexpr std::size_t dma_buffer_capacity() noexcept {
+  std::size_t max_capacity = 1U;
+  for (const auto& config : CONFIGS) {
+    const auto* const dma = config.config.dma();
+    if (dma == nullptr) {
+      continue;
+    }
+
+    const auto capacity = dma->frame_count == 0U ? 1U : dma->frame_count * COUNT;
+    if (capacity > max_capacity) {
+      max_capacity = capacity;
+    }
+  }
+  return max_capacity;
+}
+
+inline constexpr std::size_t DMA_BACKEND_COUNT = dma_backend_count();
+inline constexpr std::size_t DMA_BUFFER_CAPACITY = dma_buffer_capacity();
 }  // namespace adc
 
 namespace pwm {

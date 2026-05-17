@@ -170,7 +170,10 @@ result opaque_nv_memory::read(const uint32_t address, uint8_t* const p_data,
   }
   const auto config_base_virtual_address = base_virtual_address(m_arg0);
   if (!eeprom_config_valid(config_base_virtual_address, m_capacity) ||
-      !range_valid(m_capacity, address, len) || (len != 0U && p_data == nullptr)) {
+      (len != 0U && p_data == nullptr)) {
+    return result::UNRECOVERABLE_ERROR;
+  }
+  if (!range_valid(m_capacity, address, len)) {
     return result::RECOVERABLE_ERROR;
   }
 
@@ -200,7 +203,10 @@ result opaque_nv_memory::write(const uint32_t address, const uint8_t* const p_da
   }
   const auto config_base_virtual_address = base_virtual_address(m_arg0);
   if (!eeprom_config_valid(config_base_virtual_address, m_capacity) ||
-      !range_valid(m_capacity, address, len) || (len != 0U && p_data == nullptr)) {
+      (len != 0U && p_data == nullptr)) {
+    return result::UNRECOVERABLE_ERROR;
+  }
+  if (!range_valid(m_capacity, address, len)) {
     return result::RECOVERABLE_ERROR;
   }
 

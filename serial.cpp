@@ -22,7 +22,7 @@ result Serial::stop() noexcept {
 result Serial::write(const uint8_t* const p_data, const size_t len,
                      const Timestamp timeout_uS) noexcept {
   if (p_data == nullptr && len != 0U) {
-    return result::RECOVERABLE_ERROR;
+    return result::UNRECOVERABLE_ERROR;
   }
 
   return m_opaque.write(p_data, len, timeout_uS);
@@ -31,7 +31,7 @@ result Serial::write(const uint8_t* const p_data, const size_t len,
 result Serial::read(uint8_t* const p_data, const size_t len,
                     const Timestamp timeout_uS) noexcept {
   if (p_data == nullptr && len != 0U) {
-    return result::RECOVERABLE_ERROR;
+    return result::UNRECOVERABLE_ERROR;
   }
 
   if (p_data == nullptr) {

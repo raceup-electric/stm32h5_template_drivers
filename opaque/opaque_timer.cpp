@@ -19,7 +19,7 @@ uint32_t timer_prescaler(const TIM_TypeDef* instance,
 
 result opaque_timer::init(const stm32h5xx::cfg::timer_config& config) const noexcept {
   if (m_p_handle == nullptr) {
-    return result::RECOVERABLE_ERROR;
+    return result::UNRECOVERABLE_ERROR;
   }
 
   auto* const p_handle = m_p_handle;
@@ -53,7 +53,7 @@ result opaque_timer::init(const stm32h5xx::cfg::timer_config& config) const noex
 
 result opaque_timer::stop() const noexcept {
   if (m_p_handle == nullptr) {
-    return result::RECOVERABLE_ERROR;
+    return result::UNRECOVERABLE_ERROR;
   }
 
   auto* const p_handle = m_p_handle;
@@ -78,12 +78,12 @@ result opaque_timer::stop() const noexcept {
 
 expected::expected<uint64_t, result> opaque_timer::time_now() const noexcept {
   if (m_p_handle == nullptr) {
-    return expected::unexpected(result::RECOVERABLE_ERROR);
+    return expected::unexpected(result::UNRECOVERABLE_ERROR);
   }
 
   const auto* const p_handle = m_p_handle;
   if (p_handle->Instance == nullptr || m_counter_clock_hz == 0U) {
-    return expected::unexpected(result::RECOVERABLE_ERROR);
+    return expected::unexpected(result::UNRECOVERABLE_ERROR);
   }
 
   const auto ticks = static_cast<uint64_t>(

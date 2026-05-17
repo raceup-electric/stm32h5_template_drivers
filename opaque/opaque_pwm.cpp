@@ -252,12 +252,12 @@ result opaque_general_purpose_pwm::init(
 
 result opaque_general_purpose_pwm::enable() noexcept {
   if (p_state == nullptr || p_state->p_handle == nullptr) {
-    return result::RECOVERABLE_ERROR;
+    return result::UNRECOVERABLE_ERROR;
   }
 
   auto& r_handle = *p_state->p_handle;
   if (r_handle.Instance == nullptr) {
-    return result::RECOVERABLE_ERROR;
+    return result::UNRECOVERABLE_ERROR;
   }
 
   return from_hal_status(HAL_TIM_PWM_Start(&r_handle, channel));
@@ -265,7 +265,7 @@ result opaque_general_purpose_pwm::enable() noexcept {
 
 result opaque_general_purpose_pwm::disable() noexcept {
   if (p_state == nullptr || p_state->p_handle == nullptr) {
-    return result::RECOVERABLE_ERROR;
+    return result::UNRECOVERABLE_ERROR;
   }
 
   auto& r_handle = *p_state->p_handle;
@@ -278,7 +278,7 @@ result opaque_general_purpose_pwm::disable() noexcept {
 
 result opaque_general_purpose_pwm::deinit() noexcept {
   if (p_state == nullptr || p_state->p_handle == nullptr) {
-    return result::RECOVERABLE_ERROR;
+    return result::UNRECOVERABLE_ERROR;
   }
 
   auto& r_handle = *p_state->p_handle;
@@ -302,7 +302,7 @@ bool opaque_general_purpose_pwm::is_enabled() const noexcept {
 result opaque_general_purpose_pwm::update_duty_cycle(
     const uint16_t duty_cycle_permille) noexcept {
   if (p_state == nullptr || p_state->p_handle == nullptr) {
-    return result::RECOVERABLE_ERROR;
+    return result::UNRECOVERABLE_ERROR;
   }
 
   auto& r_handle = *p_state->p_handle;
@@ -318,12 +318,12 @@ result opaque_general_purpose_pwm::update_duty_cycle(
 expected::expected<uint16_t, result> opaque_general_purpose_pwm::get_duty_cycle()
     const noexcept {
   if (p_state == nullptr || p_state->p_handle == nullptr) {
-    return expected::unexpected(result::RECOVERABLE_ERROR);
+    return expected::unexpected(result::UNRECOVERABLE_ERROR);
   }
 
   const auto& r_handle = *p_state->p_handle;
   if (r_handle.Instance == nullptr) {
-    return expected::unexpected(result::RECOVERABLE_ERROR);
+    return expected::unexpected(result::UNRECOVERABLE_ERROR);
   }
 
   return pwm_duty_cycle_permille(
@@ -376,7 +376,7 @@ result opaque_low_power_pwm::init(const stm32h5xx::cfg::pwm_config& config,
 
 result opaque_low_power_pwm::enable() noexcept {
   if (p_state == nullptr || p_state->handle.Instance == nullptr) {
-    return result::RECOVERABLE_ERROR;
+    return result::UNRECOVERABLE_ERROR;
   }
 
   return from_hal_status(HAL_LPTIM_PWM_Start(&p_state->handle, channel));
@@ -422,7 +422,7 @@ result opaque_low_power_pwm::update_duty_cycle(
 expected::expected<uint16_t, result> opaque_low_power_pwm::get_duty_cycle()
     const noexcept {
   if (p_state == nullptr || p_state->handle.Instance == nullptr) {
-    return expected::unexpected(result::RECOVERABLE_ERROR);
+    return expected::unexpected(result::UNRECOVERABLE_ERROR);
   }
 
   const auto* const p_instance = p_state->handle.Instance;

@@ -34,7 +34,7 @@ result opaque_adc::init(const stm32h5xx::cfg::adc_config& config) const noexcept
 
 result opaque_adc::stop() const noexcept {
   if (m_p_handle == nullptr) {
-    return result::RECOVERABLE_ERROR;
+    return result::UNRECOVERABLE_ERROR;
   }
 
   auto* const p_handle = m_p_handle;
@@ -44,7 +44,7 @@ result opaque_adc::stop() const noexcept {
 
 result opaque_adc::read(uint16_t& r_value) const noexcept {
   if (m_p_handle == nullptr) {
-    return result::RECOVERABLE_ERROR;
+    return result::UNRECOVERABLE_ERROR;
   }
 
   auto* const p_handle = m_p_handle;
@@ -65,7 +65,7 @@ result opaque_adc::read(uint16_t& r_value) const noexcept {
 result opaque_adc::try_read(bool& r_has_value, uint16_t& r_value) const noexcept {
   r_has_value = false;
   if (m_p_handle == nullptr) {
-    return result::RECOVERABLE_ERROR;
+    return result::UNRECOVERABLE_ERROR;
   }
 
   auto* const p_handle = m_p_handle;

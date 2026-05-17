@@ -1,9 +1,9 @@
 #pragma once
 
-#include "common.hpp"
+#include <cstdint>
 
 namespace ru::driver {
-class Common;
+enum class result : uint8_t;
 
 struct opaque_common {
   result start() const noexcept;

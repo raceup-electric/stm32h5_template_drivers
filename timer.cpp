@@ -42,12 +42,12 @@ result Timer::start() noexcept {
 result Timer::init() noexcept {
   const auto* const config = config_for(m_id);
   if (config == nullptr) {
-    return result::RECOVERABLE_ERROR;
+    return result::UNRECOVERABLE_ERROR;
   }
 
   auto* const p_handle = timer_handle(m_id);
   if (p_handle == nullptr) {
-    return result::RECOVERABLE_ERROR;
+    return result::UNRECOVERABLE_ERROR;
   }
 
   if (p_handle->Instance != nullptr) {
