@@ -1,5 +1,4 @@
 #include <algorithm>
-#include <array>
 #include <limits>
 
 #include "pwm.hpp"
@@ -22,28 +21,6 @@ const stm32h5xx::cfg::pwm_config* config_for(const PwmId id) noexcept {
     default:
       return nullptr;
   }
-}
-
-TIM_HandleTypeDef* general_purpose_tim_handle(const PwmId id) noexcept {
-  static std::array<TIM_HandleTypeDef, static_cast<std::size_t>(PwmId::COUNT)> handles{};
-  const auto index = static_cast<std::size_t>(id);
-  return index < handles.size() ? &handles[index] : nullptr;
-}
-
-general_purpose_pwm_runtime_state* pwm_runtime_state(const PwmId id) noexcept {
-  static std::array<general_purpose_pwm_runtime_state,
-                    static_cast<std::size_t>(PwmId::COUNT)>
-      states{};
-  const auto index = static_cast<std::size_t>(id);
-  return index < states.size() ? &states[index] : nullptr;
-}
-
-low_power_pwm_runtime_state* lptim_pwm_state(const PwmId id) noexcept {
-  static std::array<low_power_pwm_runtime_state,
-                    static_cast<std::size_t>(PwmId::COUNT)>
-      states{};
-  const auto index = static_cast<std::size_t>(id);
-  return index < states.size() ? &states[index] : nullptr;
 }
 
 template <class... Ts>
@@ -250,31 +227,16 @@ bool lptim_write_compare(LPTIM_TypeDef* const p_instance, const uint32_t channel
 }
 }  // namespace
 
-opaque_pwm make_opaque_pwm(const PwmId id,
-                           const stm32h5xx::cfg::pwm_config& config) noexcept {
+opaque_pwm make_opaque_pwm(const stm32h5xx::cfg::pwm_config& config) noexcept {
   if (const auto* const general_purpose = config.general_purpose();
       general_purpose != nullptr) {
-    auto* const runtime = pwm_runtime_state(id);
-    auto* const p_handle = general_purpose_tim_handle(id);
-    if (runtime == nullptr || p_handle == nullptr) {
-      return {};
-    }
-
-    runtime->p_handle = p_handle;
     return opaque_pwm{opaque_general_purpose_pwm{
-        .p_state = runtime,
         .channel = general_purpose->channel,
     }};
   }
 
   if (const auto* const low_power = config.low_power(); low_power != nullptr) {
-    auto* const state = lptim_pwm_state(id);
-    if (state == nullptr) {
-      return {};
-    }
-
     return opaque_pwm{opaque_low_power_pwm{
-        .p_state = state,
         .channel = low_power->channel,
     }};
   }
@@ -285,7 +247,7 @@ opaque_pwm make_opaque_pwm(const PwmId id,
 namespace {
 opaque_pwm make_opaque(const PwmId id) noexcept {
   const auto* const config = config_for(id);
-  return config != nullptr ? make_opaque_pwm(id, *config) : opaque_pwm{};
+  return config != nullptr ? make_opaque_pwm(*config) : opaque_pwm{};
 }
 }  // namespace
 
@@ -391,7 +353,7 @@ expected::expected<uint16_t, result> Pwm::get_duty_cycle() const noexcept {
 result opaque_general_purpose_pwm::init(
     const stm32h5xx::cfg::pwm_config& config,
     const uint32_t frequency_hz) noexcept {
-  if (p_state == nullptr || p_state->p_handle == nullptr || frequency_hz == 0U) {
+  if (frequency_hz == 0U) {
     return result::UNRECOVERABLE_ERROR;
   }
 
@@ -400,9 +362,8 @@ result opaque_general_purpose_pwm::init(
     return result::UNRECOVERABLE_ERROR;
   }
 
-  auto* const p_handle = p_state->p_handle;
-  auto& r_handle = *p_handle;
   auto* const p_instance = backend->instance();
+  auto& r_handle = handle;
 
   enable_tim_clock(p_instance);
   init_pin(config.port(), config.pin, GPIO_MODE_AF_PP, config.pull,
@@ -424,89 +385,59 @@ result opaque_general_purpose_pwm::init(
 }
 
 result opaque_general_purpose_pwm::enable() noexcept {
-  if (p_state == nullptr || p_state->p_handle == nullptr) {
+  if (handle.Instance == nullptr) {
     return result::UNRECOVERABLE_ERROR;
   }
 
-  auto& r_handle = *p_state->p_handle;
-  if (r_handle.Instance == nullptr) {
-    return result::UNRECOVERABLE_ERROR;
-  }
-
-  return from_hal_status(HAL_TIM_PWM_Start(&r_handle, channel));
+  return from_hal_status(HAL_TIM_PWM_Start(&handle, channel));
 }
 
 result opaque_general_purpose_pwm::disable() noexcept {
-  if (p_state == nullptr || p_state->p_handle == nullptr) {
-    return result::UNRECOVERABLE_ERROR;
-  }
-
-  auto& r_handle = *p_state->p_handle;
-  if (r_handle.Instance == nullptr) {
+  if (handle.Instance == nullptr) {
     return result::OK;
   }
 
-  return from_hal_status(HAL_TIM_PWM_Stop(&r_handle, channel));
+  return from_hal_status(HAL_TIM_PWM_Stop(&handle, channel));
 }
 
 result opaque_general_purpose_pwm::deinit() noexcept {
-  if (p_state == nullptr || p_state->p_handle == nullptr) {
-    return result::UNRECOVERABLE_ERROR;
-  }
-
-  auto& r_handle = *p_state->p_handle;
-  if (r_handle.Instance == nullptr) {
+  if (handle.Instance == nullptr) {
     return result::OK;
   }
 
-  return from_hal_status(HAL_TIM_PWM_DeInit(&r_handle));
+  return from_hal_status(HAL_TIM_PWM_DeInit(&handle));
 }
 
 bool opaque_general_purpose_pwm::is_enabled() const noexcept {
-  if (p_state == nullptr || p_state->p_handle == nullptr) {
-    return false;
-  }
-
-  const auto& r_handle = *p_state->p_handle;
-  return r_handle.Instance != nullptr &&
-         (r_handle.Instance->CCER & pwm_channel_enable_mask(channel)) != 0U;
+  return handle.Instance != nullptr &&
+         (handle.Instance->CCER & pwm_channel_enable_mask(channel)) != 0U;
 }
 
 result opaque_general_purpose_pwm::update_duty_cycle(
     const uint16_t duty_cycle_permille) noexcept {
-  if (p_state == nullptr || p_state->p_handle == nullptr) {
-    return result::UNRECOVERABLE_ERROR;
-  }
-
-  auto& r_handle = *p_state->p_handle;
-  if (r_handle.Instance == nullptr) {
+  if (handle.Instance == nullptr) {
     return result::OK;
   }
 
-  __HAL_TIM_SET_COMPARE(&r_handle, channel,
-                        pwm_pulse(r_handle.Instance->ARR, duty_cycle_permille));
+  __HAL_TIM_SET_COMPARE(&handle, channel,
+                        pwm_pulse(handle.Instance->ARR, duty_cycle_permille));
   return result::OK;
 }
 
 expected::expected<uint16_t, result> opaque_general_purpose_pwm::get_duty_cycle()
     const noexcept {
-  if (p_state == nullptr || p_state->p_handle == nullptr) {
-    return expected::unexpected(result::UNRECOVERABLE_ERROR);
-  }
-
-  const auto& r_handle = *p_state->p_handle;
-  if (r_handle.Instance == nullptr) {
+  if (handle.Instance == nullptr) {
     return expected::unexpected(result::UNRECOVERABLE_ERROR);
   }
 
   return pwm_duty_cycle_permille(
-      r_handle.Instance->ARR,
-      __HAL_TIM_GET_COMPARE(const_cast<TIM_HandleTypeDef*>(&r_handle), channel));
+      handle.Instance->ARR,
+      __HAL_TIM_GET_COMPARE(const_cast<TIM_HandleTypeDef*>(&handle), channel));
 }
 
 result opaque_low_power_pwm::init(const stm32h5xx::cfg::pwm_config& config,
                                   const uint32_t frequency_hz) noexcept {
-  if (p_state == nullptr || frequency_hz == 0U) {
+  if (frequency_hz == 0U) {
     return result::UNRECOVERABLE_ERROR;
   }
 
@@ -526,7 +457,6 @@ result opaque_low_power_pwm::init(const stm32h5xx::cfg::pwm_config& config,
   init.Period =
       lptim_period(backend->source_clock_hz, frequency_hz, prescaler.divider);
 
-  auto& handle = p_state->handle;
   handle = {};
   handle.Instance = p_instance;
   handle.Init = init;
@@ -548,45 +478,45 @@ result opaque_low_power_pwm::init(const stm32h5xx::cfg::pwm_config& config,
 }
 
 result opaque_low_power_pwm::enable() noexcept {
-  if (p_state == nullptr || p_state->handle.Instance == nullptr) {
+  if (handle.Instance == nullptr) {
     return result::UNRECOVERABLE_ERROR;
   }
 
-  return from_hal_status(HAL_LPTIM_PWM_Start(&p_state->handle, channel));
+  return from_hal_status(HAL_LPTIM_PWM_Start(&handle, channel));
 }
 
 result opaque_low_power_pwm::disable() noexcept {
-  if (p_state == nullptr || p_state->handle.Instance == nullptr) {
+  if (handle.Instance == nullptr) {
     return result::OK;
   }
 
-  return from_hal_status(HAL_LPTIM_PWM_Stop(&p_state->handle, channel));
+  return from_hal_status(HAL_LPTIM_PWM_Stop(&handle, channel));
 }
 
 result opaque_low_power_pwm::deinit() noexcept {
-  if (p_state == nullptr || p_state->handle.Instance == nullptr) {
+  if (handle.Instance == nullptr) {
     return result::OK;
   }
 
-  const auto status = from_hal_status(HAL_LPTIM_DeInit(&p_state->handle));
+  const auto status = from_hal_status(HAL_LPTIM_DeInit(&handle));
   if (status == result::OK) {
-    p_state->handle.Instance = nullptr;
+    handle.Instance = nullptr;
   }
   return status;
 }
 
 bool opaque_low_power_pwm::is_enabled() const noexcept {
-  return p_state != nullptr && p_state->handle.Instance != nullptr &&
-         (p_state->handle.Instance->CCMR1 & lptim_channel_enable_mask(channel)) != 0U;
+  return handle.Instance != nullptr &&
+         (handle.Instance->CCMR1 & lptim_channel_enable_mask(channel)) != 0U;
 }
 
 result opaque_low_power_pwm::update_duty_cycle(
     const uint16_t duty_cycle_permille) noexcept {
-  if (p_state == nullptr || p_state->handle.Instance == nullptr) {
+  if (handle.Instance == nullptr) {
     return result::OK;
   }
 
-  auto* const p_instance = p_state->handle.Instance;
+  auto* const p_instance = handle.Instance;
   const auto pulse = lptim_compare(p_instance->ARR, duty_cycle_permille);
   return lptim_write_compare(p_instance, channel, pulse) ? result::OK
                                                           : result::RECOVERABLE_ERROR;
@@ -594,11 +524,11 @@ result opaque_low_power_pwm::update_duty_cycle(
 
 expected::expected<uint16_t, result> opaque_low_power_pwm::get_duty_cycle()
     const noexcept {
-  if (p_state == nullptr || p_state->handle.Instance == nullptr) {
+  if (handle.Instance == nullptr) {
     return expected::unexpected(result::UNRECOVERABLE_ERROR);
   }
 
-  const auto* const p_instance = p_state->handle.Instance;
+  const auto* const p_instance = handle.Instance;
   const auto compare =
       channel == LPTIM_CHANNEL_1 ? p_instance->CCR1 : p_instance->CCR2;
   return lptim_duty_cycle_permille(p_instance->ARR, compare);
@@ -619,11 +549,10 @@ bool opaque_pwm::initialized() const noexcept {
       overloaded{
           [&](const std::monostate&) { return false; },
           [&](const opaque_general_purpose_pwm& backend) {
-            return backend.p_state != nullptr && backend.p_state->p_handle != nullptr &&
-                   backend.p_state->p_handle->Instance != nullptr;
+            return backend.handle.Instance != nullptr;
           },
           [&](const opaque_low_power_pwm& backend) {
-            return backend.p_state != nullptr && backend.p_state->handle.Instance != nullptr;
+            return backend.handle.Instance != nullptr;
           },
       },
       m_backend);
@@ -634,14 +563,10 @@ void opaque_pwm::reset() noexcept {
       overloaded{
           [&](std::monostate&) {},
           [&](opaque_general_purpose_pwm& backend) {
-            if (backend.p_state != nullptr && backend.p_state->p_handle != nullptr) {
-              backend.p_state->p_handle->Instance = nullptr;
-            }
+            backend.handle.Instance = nullptr;
           },
           [&](opaque_low_power_pwm& backend) {
-            if (backend.p_state != nullptr) {
-              backend.p_state->handle.Instance = nullptr;
-            }
+            backend.handle.Instance = nullptr;
           },
       },
       m_backend);

@@ -1,25 +1,44 @@
 #pragma once
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 
 #include "common.hpp"
+#include "mapping.hpp"
 #include "mapping_types.hpp"
 #include "stm32h5xx_hal.h"  // IWYU pragma: keep
 
 namespace ru::driver {
+
+namespace detail {
+constexpr std::size_t adc_dma_buffer_capacity() noexcept {
+  std::size_t max_capacity = 1U;
+#define RU_STM32H5XX_ADC_DMA_CAPACITY(name, config)                              \
+  if ((config).uses_dma) {                                                       \
+    const auto capacity = (config).dma_frame_count == 0U ? 1U : (config).dma_frame_count; \
+    if (capacity > max_capacity) {                                               \
+      max_capacity = capacity;                                                   \
+    }                                                                            \
+  }
+  RU_STM32H5XX_ADC_MAP(RU_STM32H5XX_ADC_DMA_CAPACITY)
+#undef RU_STM32H5XX_ADC_DMA_CAPACITY
+  return max_capacity;
+}
+}  // namespace detail
 
 class Adc;
 
 struct opaque_adc {
  public:
   constexpr opaque_adc() noexcept = default;
-  constexpr opaque_adc(ADC_HandleTypeDef* const p_handle,
-                       const stm32h5xx::cfg::adc_config* const p_config) noexcept
-      : m_p_handle(p_handle), m_p_config(p_config) {}
+  constexpr explicit opaque_adc(
+      const stm32h5xx::cfg::adc_config* const p_config) noexcept
+      : m_p_config(p_config) {}
 
   constexpr bool valid() const noexcept {
-    return m_p_handle != nullptr && m_p_config != nullptr;
+    return m_p_config != nullptr;
   }
 
   bool uses_dma() const noexcept;
@@ -45,12 +64,21 @@ struct opaque_adc {
   std::optional<AdcId> id() const noexcept;
   bool initialized() const noexcept;
   static void start() noexcept;
-  result init() const noexcept;
-  result stop() const noexcept;
-  result read(uint16_t& r_value) const noexcept;
-  result try_read(bool& r_has_value, uint16_t& r_value) const noexcept;
+  result init() noexcept;
+  result stop() noexcept;
+  result read(uint16_t& r_value) noexcept;
+  result try_read(bool& r_has_value, uint16_t& r_value) noexcept;
 
-  ADC_HandleTypeDef* m_p_handle{nullptr};
+ public:
+  ADC_HandleTypeDef m_handle{};
+  TIM_HandleTypeDef m_trigger_timer_handle{};
+  DMA_NodeTypeDef m_dma_node{};
+  DMA_QListTypeDef m_dma_queue{};
+  DMA_HandleTypeDef m_dma_channel_handle{};
+  std::array<uint16_t, detail::adc_dma_buffer_capacity()> m_dma_buffer{};
+  std::size_t m_processed_samples_in_cycle{0U};
+  uint64_t m_sum{0U};
+  uint32_t m_sample_count{0U};
   const stm32h5xx::cfg::adc_config* m_p_config{nullptr};
 };
 }  // namespace ru::driver

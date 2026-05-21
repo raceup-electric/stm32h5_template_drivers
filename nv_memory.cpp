@@ -30,9 +30,6 @@ opaque_nv_memory make_opaque(const NvMemoryId id) noexcept {
 
 constexpr uint16_t k_erased_word{0xFFFFU};
 
-ee_object_t g_eeprom_object{};
-bool g_eeprom_initialized{false};
-
 bool range_valid(const uint32_t capacity, const uint32_t address,
                  const size_t len) noexcept {
   return static_cast<uint64_t>(address) + static_cast<uint64_t>(len) <=
@@ -69,17 +66,23 @@ result finish_write_status(const ee_status status) noexcept {
   return result::OK;
 }
 
-result ensure_eeprom_initialized() noexcept {
-  if (g_eeprom_initialized) {
+result ensure_eeprom_initialized(opaque_nv_memory& memory) noexcept {
+  if (memory.m_eeprom_initialized) {
     return result::OK;
   }
 
-  const auto status = EE_Init(&g_eeprom_object, EE_CONDITIONAL_ERASE);
+  ee_object_t eeprom_object{
+      .f_object = memory.m_eeprom_flash_object,
+      .crc_object = memory.m_eeprom_crc_object,
+  };
+  const auto status = EE_Init(&eeprom_object, EE_CONDITIONAL_ERASE);
   if (eeprom_status_is_error(status)) {
     return result::RECOVERABLE_ERROR;
   }
 
-  g_eeprom_initialized = true;
+  memory.m_eeprom_flash_object = eeprom_object.f_object;
+  memory.m_eeprom_crc_object = eeprom_object.crc_object;
+  memory.m_eeprom_initialized = true;
   return result::OK;
 }
 
@@ -109,8 +112,9 @@ uint16_t virtual_address_for(const uint16_t base_virtual_address,
   return static_cast<uint16_t>(base_virtual_address + (byte_address / 2U));
 }
 
-result eeprom_read_word(const uint16_t virtual_address, uint16_t& word) noexcept {
-  const auto init_status = ensure_eeprom_initialized();
+result eeprom_read_word(opaque_nv_memory& memory, const uint16_t virtual_address,
+                        uint16_t& word) noexcept {
+  const auto init_status = ensure_eeprom_initialized(memory);
   if (init_status != result::OK) {
     return init_status;
   }
@@ -124,8 +128,9 @@ result eeprom_read_word(const uint16_t virtual_address, uint16_t& word) noexcept
   return status == EE_OK ? result::OK : result::RECOVERABLE_ERROR;
 }
 
-result eeprom_write_word(const uint16_t virtual_address, const uint16_t word) noexcept {
-  const auto init_status = ensure_eeprom_initialized();
+result eeprom_write_word(opaque_nv_memory& memory, const uint16_t virtual_address,
+                         const uint16_t word) noexcept {
+  const auto init_status = ensure_eeprom_initialized(memory);
   if (init_status != result::OK) {
     return init_status;
   }
@@ -188,7 +193,7 @@ result opaque_nv_memory::init() const noexcept {
 
   if (config_is_emulated_eeprom(m_backend)) {
     return eeprom_config_valid(base_virtual_address(m_arg0), m_capacity)
-               ? ensure_eeprom_initialized()
+               ? ensure_eeprom_initialized(const_cast<opaque_nv_memory&>(*this))
                : result::UNRECOVERABLE_ERROR;
   }
 
@@ -213,7 +218,7 @@ result opaque_nv_memory::clear() const noexcept {
     const auto virtual_address = static_cast<uint16_t>(config_base_virtual_address + word_index);
 
     uint16_t word{k_erased_word};
-    auto status = eeprom_read_word(virtual_address, word);
+    auto status = eeprom_read_word(const_cast<opaque_nv_memory&>(*this), virtual_address, word);
     if (status != result::OK) {
       return status;
     }
@@ -222,7 +227,8 @@ result opaque_nv_memory::clear() const noexcept {
       continue;
     }
 
-    status = eeprom_write_word(virtual_address, k_erased_word);
+    status = eeprom_write_word(const_cast<opaque_nv_memory&>(*this), virtual_address,
+                               k_erased_word);
     if (status != result::OK) {
       return status;
     }
@@ -251,7 +257,8 @@ result opaque_nv_memory::read(const uint32_t address, uint8_t* const p_data,
         virtual_address_for(config_base_virtual_address, byte_address);
 
     uint16_t word{k_erased_word};
-    const auto status = eeprom_read_word(virtual_address, word);
+    const auto status =
+        eeprom_read_word(const_cast<opaque_nv_memory&>(*this), virtual_address, word);
     if (status != result::OK) {
       return status;
     }
@@ -284,7 +291,7 @@ result opaque_nv_memory::write(const uint32_t address, const uint8_t* const p_da
         virtual_address_for(config_base_virtual_address, byte_address);
 
     uint16_t word{k_erased_word};
-    auto status = eeprom_read_word(virtual_address, word);
+    auto status = eeprom_read_word(const_cast<opaque_nv_memory&>(*this), virtual_address, word);
     if (status != result::OK) {
       return status;
     }
@@ -298,7 +305,7 @@ result opaque_nv_memory::write(const uint32_t address, const uint8_t* const p_da
       continue;
     }
 
-    status = eeprom_write_word(virtual_address, next_word);
+    status = eeprom_write_word(const_cast<opaque_nv_memory&>(*this), virtual_address, next_word);
     if (status != result::OK) {
       return status;
     }

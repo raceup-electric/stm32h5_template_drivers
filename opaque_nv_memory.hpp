@@ -26,9 +26,13 @@ struct opaque_nv_memory {
   result read(uint32_t address, uint8_t* p_data, size_t len) const noexcept;
   result write(uint32_t address, const uint8_t* p_data, size_t len) const noexcept;
 
+ public:
   stm32h5xx::cfg::nv_memory_config::backend_kind m_backend{
       stm32h5xx::cfg::nv_memory_config::backend_kind::None};
   uint32_t m_arg0{0U};
   uint32_t m_capacity{0U};
+  mutable void* m_eeprom_flash_object{nullptr};
+  mutable void* m_eeprom_crc_object{nullptr};
+  mutable bool m_eeprom_initialized{false};
 };
 }  // namespace ru::driver

@@ -1,5 +1,3 @@
-#include <array>
-
 #include "timer.hpp"
 
 #include "mapping.hpp"
@@ -22,12 +20,6 @@ const stm32h5xx::cfg::timer_config* config_for(const TimerId id) noexcept {
   }
 }
 
-TIM_HandleTypeDef* timer_handle(const TimerId id) noexcept {
-  static std::array<TIM_HandleTypeDef, static_cast<std::size_t>(TimerId::COUNT)> handles{};
-  const auto index = static_cast<std::size_t>(id);
-  return index < handles.size() ? &handles[index] : nullptr;
-}
-
 uint32_t timer_prescaler(const TIM_TypeDef* instance,
                          const uint32_t counter_frequency_hz) noexcept {
   const auto clock_hz = timer_input_clock_hz(instance);
@@ -39,7 +31,8 @@ uint32_t timer_prescaler(const TIM_TypeDef* instance,
 }  // namespace
 
 opaque_timer make_opaque(const TimerId id) noexcept {
-  return opaque_timer{timer_handle(id)};
+  (void)id;
+  return opaque_timer{};
 }
 
 Timer::Timer(const TimerId id) noexcept : m_id(id), m_opaque(make_opaque(id)) {
@@ -71,34 +64,26 @@ expected::expected<Timestamp, result> Timer::time_now() const noexcept {
 }
 
 bool opaque_timer::initialized() const noexcept {
-  return m_p_handle != nullptr && m_p_handle->Instance != nullptr;
+  return m_handle.Instance != nullptr;
 }
 
 result opaque_timer::init(const stm32h5xx::cfg::timer_config& config) const noexcept {
-  if (m_p_handle == nullptr) {
-    return result::UNRECOVERABLE_ERROR;
-  }
-
-  auto* const p_handle = m_p_handle;
   enable_tim_clock(config.instance());
 
-  auto& r_handle = *p_handle;
+  auto& r_handle = m_handle;
   r_handle.Instance = config.instance();
   r_handle.Init = config.init;
   const auto prescaler = timer_prescaler(config.instance(), config.counter_clock_hz);
   r_handle.Init.Prescaler = prescaler;
-  m_counter_clock_hz = timer_input_clock_hz(config.instance()) / (prescaler + 1U);
 
   const auto init_status = HAL_TIM_Base_Init(&r_handle);
   if (init_status != HAL_OK) {
-    m_counter_clock_hz = 0U;
     r_handle.Instance = nullptr;
     return from_hal_status(init_status);
   }
 
   const auto start_status = HAL_TIM_Base_Start(&r_handle);
   if (start_status != HAL_OK) {
-    m_counter_clock_hz = 0U;
     (void)HAL_TIM_Base_DeInit(&r_handle);
     r_handle.Instance = nullptr;
     return from_hal_status(start_status);
@@ -109,16 +94,11 @@ result opaque_timer::init(const stm32h5xx::cfg::timer_config& config) const noex
 }
 
 result opaque_timer::stop() const noexcept {
-  if (m_p_handle == nullptr) {
-    return result::UNRECOVERABLE_ERROR;
-  }
-
-  auto* const p_handle = m_p_handle;
-  if (p_handle->Instance == nullptr) {
+  if (m_handle.Instance == nullptr) {
     return result::OK;
   }
 
-  auto& r_handle = *p_handle;
+  auto& r_handle = m_handle;
   const auto stop_status = HAL_TIM_Base_Stop(&r_handle);
   if (stop_status != HAL_OK) {
     return from_hal_status(stop_status);
@@ -126,7 +106,6 @@ result opaque_timer::stop() const noexcept {
 
   const auto deinit_status = HAL_TIM_Base_DeInit(&r_handle);
   if (deinit_status == HAL_OK) {
-    m_counter_clock_hz = 0U;
     r_handle.Instance = nullptr;
   }
 
@@ -134,17 +113,19 @@ result opaque_timer::stop() const noexcept {
 }
 
 expected::expected<uint64_t, result> opaque_timer::time_now() const noexcept {
-  if (m_p_handle == nullptr) {
+  if (m_handle.Instance == nullptr) {
     return expected::unexpected(result::UNRECOVERABLE_ERROR);
   }
 
-  const auto* const p_handle = m_p_handle;
-  if (p_handle->Instance == nullptr || m_counter_clock_hz == 0U) {
+  const auto counter_clock_hz =
+      timer_input_clock_hz(m_handle.Instance) /
+      (static_cast<uint32_t>(m_handle.Instance->PSC) + 1U);
+  if (counter_clock_hz == 0U) {
     return expected::unexpected(result::UNRECOVERABLE_ERROR);
   }
 
   const auto ticks = static_cast<uint64_t>(
-      __HAL_TIM_GET_COUNTER(const_cast<TIM_HandleTypeDef*>(p_handle)));
-  return (ticks * 1000000ULL) / static_cast<uint64_t>(m_counter_clock_hz);
+      __HAL_TIM_GET_COUNTER(const_cast<TIM_HandleTypeDef*>(&m_handle)));
+  return (ticks * 1000000ULL) / static_cast<uint64_t>(counter_clock_hz);
 }
 }  // namespace ru::driver

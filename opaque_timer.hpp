@@ -15,8 +15,6 @@ class Timer;
 struct opaque_timer {
  public:
   constexpr opaque_timer() noexcept = default;
-  constexpr explicit opaque_timer(TIM_HandleTypeDef* const p_handle) noexcept
-      : m_p_handle(p_handle) {}
 
  private:
   friend class Timer;
@@ -26,7 +24,6 @@ struct opaque_timer {
   result stop() const noexcept;
   expected::expected<uint64_t, result> time_now() const noexcept;
 
-  TIM_HandleTypeDef* m_p_handle{nullptr};
-  mutable uint32_t m_counter_clock_hz{0U};
+  mutable TIM_HandleTypeDef m_handle{};
 };
 }  // namespace ru::driver
