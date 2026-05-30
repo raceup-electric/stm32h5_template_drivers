@@ -8,11 +8,11 @@ namespace ru::driver::stm32h5xx::cfg {
 
 namespace gpio {
 inline constexpr gpio_config DEBUG_LED{
-    .port_base = GPIOE_BASE,
+    .port_base = GPIOD_BASE,
     .active_high = true,
     .init =
         {
-            .Pin = GPIO_PIN_3,
+            .Pin = GPIO_PIN_7,
             .Mode = GPIO_MODE_OUTPUT_PP,
             .Pull = GPIO_NOPULL,
             .Speed = GPIO_SPEED_FREQ_LOW,
@@ -99,7 +99,8 @@ inline constexpr auto ADC_1 = adc_config::dma_config(
         .OffsetSign = ADC_OFFSET_SIGN_NEGATIVE,
         .OffsetSaturation = DISABLE,
     },
-    256U, GPDMA1_REQUEST_ADC2, GPDMA1_Channel1_BASE, GPDMA1_Channel1_IRQn);
+    256U, GPDMA1_REQUEST_ADC2, GPDMA1_Channel1_BASE, GPDMA1_Channel1_IRQn,
+    adc_dma_backend::fixed_window_average, 256U);
 }  // namespace adc
 
 namespace pwm {

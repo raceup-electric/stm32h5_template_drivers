@@ -128,10 +128,9 @@ CanMessageTs make_message_ts(const FDCAN_RxHeaderTypeDef& header,
 
 struct CanControllerState {
   FDCAN_HandleTypeDef handle{};
-  std::array<uint8_t, 2> rx_priorities{k_default_irq_priority,
-                                       k_default_irq_priority};
+  std::array<uint8_t, 2> rx_priorities{5U, 5U};
   std::array<bool, 2> rx_interrupts{false, false};
-  uint8_t error_priority{k_default_irq_priority};
+  uint8_t error_priority{5U};
   bool error_interrupt{false};
   CanControllerConfig controller_config{};
   std::optional<M_fifo> not_matching{};
@@ -379,36 +378,49 @@ result refresh_notifications(const opaque_can& config) noexcept {
   }
 
   auto& hw_handle = handle(config);
-  if (HAL_FDCAN_DeactivateNotification(&hw_handle, k_all_interrupt_mask) != HAL_OK) {
+  if (HAL_FDCAN_DeactivateNotification(
+          &hw_handle,
+          FDCAN_IT_RX_FIFO0_NEW_MESSAGE | FDCAN_IT_RX_FIFO1_NEW_MESSAGE |
+              FDCAN_IT_BUS_OFF | FDCAN_IT_ERROR_WARNING | FDCAN_IT_ERROR_PASSIVE |
+              FDCAN_IT_ARB_PROTOCOL_ERROR | FDCAN_IT_DATA_PROTOCOL_ERROR |
+              FDCAN_IT_RAM_ACCESS_FAILURE | FDCAN_IT_ERROR_LOGGING_OVERFLOW |
+              FDCAN_IT_RESERVED_ADDRESS_ACCESS | FDCAN_IT_TX_COMPLETE) != HAL_OK) {
     return result::RECOVERABLE_ERROR;
   }
 
-  if (HAL_FDCAN_ActivateNotification(&hw_handle, k_bus_off_interrupt_mask, 0U) != HAL_OK) {
+  if (HAL_FDCAN_ActivateNotification(&hw_handle, FDCAN_IT_BUS_OFF, 0U) != HAL_OK) {
     return result::RECOVERABLE_ERROR;
   }
 
   if (rx_interrupts(config)[0] || rx_callbacks(config)[0] != nullptr) {
-    if (HAL_FDCAN_ActivateNotification(&hw_handle, k_rx_interrupt_mask_fifo0, 0U) != HAL_OK) {
+    if (HAL_FDCAN_ActivateNotification(&hw_handle, FDCAN_IT_RX_FIFO0_NEW_MESSAGE, 0U) !=
+        HAL_OK) {
       return result::RECOVERABLE_ERROR;
     }
   }
 
   if (rx_interrupts(config)[1] || rx_callbacks(config)[1] != nullptr) {
-    if (HAL_FDCAN_ActivateNotification(&hw_handle, k_rx_interrupt_mask_fifo1, 0U) != HAL_OK) {
+    if (HAL_FDCAN_ActivateNotification(&hw_handle, FDCAN_IT_RX_FIFO1_NEW_MESSAGE, 0U) !=
+        HAL_OK) {
       return result::RECOVERABLE_ERROR;
     }
   }
 
   if (error_interrupt(config)) {
-    if (HAL_FDCAN_ActivateNotification(&hw_handle, k_optional_error_interrupt_mask, 0U) !=
-        HAL_OK) {
+    if (HAL_FDCAN_ActivateNotification(
+            &hw_handle,
+            FDCAN_IT_ERROR_WARNING | FDCAN_IT_ERROR_PASSIVE |
+                FDCAN_IT_ARB_PROTOCOL_ERROR | FDCAN_IT_DATA_PROTOCOL_ERROR |
+                FDCAN_IT_RAM_ACCESS_FAILURE | FDCAN_IT_ERROR_LOGGING_OVERFLOW |
+                FDCAN_IT_RESERVED_ADDRESS_ACCESS,
+            0U) != HAL_OK) {
       return result::RECOVERABLE_ERROR;
     }
   }
 
   if (txfull_callback(config) != nullptr) {
-    if (HAL_FDCAN_ActivateNotification(&hw_handle, k_tx_interrupt_mask, FDCAN_TX_BUFFER0) !=
-        HAL_OK) {
+    if (HAL_FDCAN_ActivateNotification(&hw_handle, FDCAN_IT_TX_COMPLETE,
+                                       FDCAN_TX_BUFFER0) != HAL_OK) {
       return result::RECOVERABLE_ERROR;
     }
   }
@@ -440,7 +452,7 @@ result init_controller(const opaque_can& config,
     return refresh_notifications(config);
   }
 
-  enable_fdcan_clock(init_config.instance());
+  __HAL_RCC_FDCAN_CLK_ENABLE();
   init_pin(init_config.port_rx(), init_config.rx_pin_init);
   init_pin(init_config.port_tx(), init_config.tx_pin_init);
 
@@ -495,7 +507,13 @@ result stop_controller(const opaque_can& config) noexcept {
   }
 
   auto& hw_handle = handle(config);
-  if (HAL_FDCAN_DeactivateNotification(&hw_handle, k_all_interrupt_mask) != HAL_OK) {
+  if (HAL_FDCAN_DeactivateNotification(
+          &hw_handle,
+          FDCAN_IT_RX_FIFO0_NEW_MESSAGE | FDCAN_IT_RX_FIFO1_NEW_MESSAGE |
+              FDCAN_IT_BUS_OFF | FDCAN_IT_ERROR_WARNING | FDCAN_IT_ERROR_PASSIVE |
+              FDCAN_IT_ARB_PROTOCOL_ERROR | FDCAN_IT_DATA_PROTOCOL_ERROR |
+              FDCAN_IT_RAM_ACCESS_FAILURE | FDCAN_IT_ERROR_LOGGING_OVERFLOW |
+              FDCAN_IT_RESERVED_ADDRESS_ACCESS | FDCAN_IT_TX_COMPLETE) != HAL_OK) {
     return result::RECOVERABLE_ERROR;
   }
 

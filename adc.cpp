@@ -14,6 +14,33 @@ using namespace ru::driver;
 
 namespace ru::driver {
 namespace {
+constexpr uint32_t DMA_FIXED_WINDOW_READY = 0x80000000UL;
+constexpr uint32_t DMA_SAMPLE_COUNT_MASK = ~DMA_FIXED_WINDOW_READY;
+
+constexpr std::size_t dma_transfer_length(
+    const stm32h5xx::cfg::adc_config& config) noexcept {
+  return config.dma_frame_count == 0U ? 1U : config.dma_frame_count;
+}
+
+template <const stm32h5xx::cfg::adc_config* Config>
+uint16_t* dma_buffer_data() noexcept {
+  if constexpr (Config->uses_dma) {
+    static uint16_t buffer[dma_transfer_length(*Config)]{};
+    return buffer;
+  }
+
+  return nullptr;
+}
+
+template <const stm32h5xx::cfg::adc_config* Config>
+constexpr std::size_t dma_buffer_size() noexcept {
+  if constexpr (Config->uses_dma) {
+    return dma_transfer_length(*Config);
+  }
+
+  return 0U;
+}
+
 constexpr const stm32h5xx::cfg::adc_config* config_for(const AdcId id) noexcept {
   switch (id) {
 #define RU_STM32H5XX_ADC_CONFIG(name, config) \
@@ -24,6 +51,32 @@ constexpr const stm32h5xx::cfg::adc_config* config_for(const AdcId id) noexcept 
     default:
       return nullptr;
   }
+}
+
+uint16_t* dma_buffer_for(
+    const stm32h5xx::cfg::adc_config* const p_config) noexcept {
+#define RU_STM32H5XX_ADC_BUFFER_DATA(name, config) \
+  if (p_config == &config) {                       \
+    return dma_buffer_data<&config>();             \
+  }
+  RU_STM32H5XX_ADC_MAP(RU_STM32H5XX_ADC_BUFFER_DATA)
+#undef RU_STM32H5XX_ADC_BUFFER_DATA
+  return nullptr;
+}
+
+std::size_t dma_buffer_size_for(
+    const stm32h5xx::cfg::adc_config* const p_config) noexcept {
+#define RU_STM32H5XX_ADC_BUFFER_SIZE(name, config) \
+  if (p_config == &config) {                       \
+    return dma_buffer_size<&config>();             \
+  }
+  RU_STM32H5XX_ADC_MAP(RU_STM32H5XX_ADC_BUFFER_SIZE)
+#undef RU_STM32H5XX_ADC_BUFFER_SIZE
+  return 0U;
+}
+
+opaque_adc make_opaque(const stm32h5xx::cfg::adc_config* const p_config) noexcept {
+  return opaque_adc{p_config};
 }
 
 uint32_t timer_prescaler(const TIM_TypeDef* instance,
@@ -46,7 +99,7 @@ uint32_t timer_period(const uint32_t counter_clock_hz,
 
 opaque_adc make_opaque(const AdcId id) noexcept {
   const auto* const config = config_for(id);
-  return config != nullptr ? opaque_adc{config} : opaque_adc{};
+  return config != nullptr ? make_opaque(config) : opaque_adc{};
 }
 }  // namespace
 
@@ -97,6 +150,19 @@ std::size_t dma_transfer_length(const opaque_adc& config) noexcept {
   return config.dma_frame_count() == 0U ? 1U : config.dma_frame_count();
 }
 
+std::size_t dma_window_width(const opaque_adc& config) noexcept {
+  const auto configured_width = config.dma_window_width();
+  return configured_width == 0U ? dma_transfer_length(config) : configured_width;
+}
+
+bool uses_fixed_window_average(const opaque_adc& config) noexcept {
+  return config.dma_backend() == stm32h5xx::cfg::adc_dma_backend::fixed_window_average;
+}
+
+uint16_t* dma_buffer(const opaque_adc& runtime) noexcept {
+  return dma_buffer_for(runtime.m_p_config);
+}
+
 opaque_adc*& dma_owner_slot(ADC_TypeDef* const p_instance) noexcept {
   static opaque_adc* adc1_owner{nullptr};
   static opaque_adc* adc2_owner{nullptr};
@@ -140,7 +206,7 @@ opaque_adc* running_dma_owner_for(const opaque_adc& config) noexcept {
 }
 
 opaque_adc* adc_from_handle(ADC_HandleTypeDef* const hadc) noexcept {
-  return hadc != nullptr ? reinterpret_cast<opaque_adc*>(hadc) : nullptr;
+  return hadc != nullptr ? dma_owner_for_instance(hadc->Instance) : nullptr;
 }
 
 void accumulate_dma_samples(opaque_adc& runtime, const std::size_t begin_sample,
@@ -154,9 +220,10 @@ void accumulate_dma_samples(opaque_adc& runtime, const std::size_t begin_sample,
 
   const std::size_t begin = std::min(begin_sample, active_buffer_length);
   const std::size_t end = std::min(end_sample, active_buffer_length);
+  auto* const buffer = dma_buffer(runtime);
 
   for (std::size_t sample = begin; sample < end; ++sample) {
-    runtime.m_sum += runtime.m_dma_buffer[sample];
+    runtime.m_sum += buffer[sample];
     runtime.m_sample_count += 1U;
   }
 }
@@ -170,12 +237,67 @@ void accumulate_dma_until(opaque_adc& runtime, const std::size_t boundary) noexc
   runtime.m_processed_samples_in_cycle = boundary;
 }
 
+uint64_t sum_fixed_dma_window(const opaque_adc& runtime,
+                              const std::size_t end_sample) noexcept {
+  const auto active_buffer_length = dma_transfer_length(runtime);
+  const auto window_width = dma_window_width(runtime);
+  auto* const buffer = dma_buffer(runtime);
+  uint64_t sum{0U};
+
+  const auto sum_range = [buffer, &sum](const std::size_t begin,
+                                        const std::size_t end) noexcept {
+    for (std::size_t sample = begin; sample < end; ++sample) {
+      sum += buffer[sample];
+    }
+  };
+
+  if (window_width <= end_sample) {
+    sum_range(end_sample - window_width, end_sample);
+    return sum;
+  }
+
+  const auto wrapped_count = window_width - end_sample;
+  sum_range(active_buffer_length - wrapped_count, active_buffer_length);
+  sum_range(0U, end_sample);
+  return sum;
+}
+
+void complete_fixed_dma_window(opaque_adc& runtime,
+                               const std::size_t boundary) noexcept {
+  const auto active_buffer_length = dma_transfer_length(runtime);
+  if (active_buffer_length == 0U || boundary > active_buffer_length ||
+      boundary <= runtime.m_processed_samples_in_cycle) {
+    return;
+  }
+
+  const auto window_width = dma_window_width(runtime);
+  const auto completed_count = boundary - runtime.m_processed_samples_in_cycle;
+  const auto previous_valid_count = runtime.m_sample_count & DMA_SAMPLE_COUNT_MASK;
+  const auto valid_count =
+      std::min<uint32_t>(static_cast<uint32_t>(window_width),
+                         previous_valid_count + static_cast<uint32_t>(completed_count));
+
+  runtime.m_processed_samples_in_cycle = boundary;
+  if (valid_count < window_width) {
+    runtime.m_sample_count = valid_count;
+    return;
+  }
+
+  runtime.m_sum = sum_fixed_dma_window(runtime, boundary);
+  runtime.m_sample_count = static_cast<uint32_t>(window_width) | DMA_FIXED_WINDOW_READY;
+}
+
 bool prepare_dma_runtime(opaque_adc& runtime) noexcept {
   init_pin(runtime.port(), runtime.pin_init());
   runtime.m_sum = 0U;
   runtime.m_sample_count = 0U;
   runtime.m_processed_samples_in_cycle = 0U;
-  return dma_transfer_length(runtime) <= runtime.m_dma_buffer.size();
+  const auto active_buffer_length = dma_transfer_length(runtime);
+  const auto window_width = dma_window_width(runtime);
+  return dma_buffer(runtime) != nullptr &&
+         active_buffer_length <= dma_buffer_size_for(runtime.m_p_config) &&
+         window_width > 0U && window_width <= active_buffer_length &&
+         window_width <= DMA_SAMPLE_COUNT_MASK;
 }
 
 bool configure_adc_channel(opaque_adc& runtime) noexcept {
@@ -236,12 +358,12 @@ bool start_dma_backend_impl(opaque_adc& runtime) noexcept {
   }
 
   const auto* const config = runtime.m_p_config;
-  runtime = opaque_adc{config};
+  runtime = make_opaque(config);
   set_dma_owner(runtime.instance(), &runtime);
 
   const auto fail = [&runtime, config]() noexcept {
     set_dma_owner(runtime.instance(), nullptr);
-    runtime = opaque_adc{config};
+    runtime = make_opaque(config);
     return false;
   };
 
@@ -310,11 +432,12 @@ bool start_dma_backend_impl(opaque_adc& runtime) noexcept {
     return fail();
   }
 
-  runtime.m_dma_buffer.fill(0U);
+  auto* const buffer = dma_buffer(runtime);
+  std::fill_n(buffer, dma_transfer_length(runtime), 0U);
 
   if (HAL_ADCEx_Calibration_Start(&runtime.m_handle, ADC_SINGLE_ENDED) != HAL_OK ||
       HAL_ADC_Start_DMA(&runtime.m_handle,
-                        reinterpret_cast<uint32_t*>(runtime.m_dma_buffer.data()),
+                        reinterpret_cast<uint32_t*>(buffer),
                         static_cast<uint32_t>(dma_transfer_length(runtime))) != HAL_OK) {
     return fail();
   }
@@ -356,6 +479,27 @@ expected::expected<uint16_t, result> read_dma_average(const opaque_adc& config) 
   return static_cast<uint16_t>(sum / count);
 }
 
+expected::expected<uint16_t, result> read_dma_fixed_window_average(
+    const opaque_adc& config) noexcept {
+  auto* const runtime = running_dma_owner_for(config);
+  if (runtime == nullptr || runtime != &config) {
+    return expected::unexpected(result::RECOVERABLE_ERROR);
+  }
+
+  const auto window_width = dma_window_width(*runtime);
+  const uint32_t primask = lock_irq();
+  const uint64_t sum = runtime->m_sum;
+  const uint32_t count = runtime->m_sample_count;
+  runtime->m_sample_count = count & DMA_SAMPLE_COUNT_MASK;
+  unlock_irq(primask);
+
+  if ((count & DMA_FIXED_WINDOW_READY) == 0U) {
+    return expected::unexpected(result::RECOVERABLE_ERROR);
+  }
+
+  return static_cast<uint16_t>(sum / window_width);
+}
+
 expected::expected<std::optional<uint16_t>, result> try_read_dma_average(
     const opaque_adc& config) noexcept {
   auto* const runtime = running_dma_owner_for(config);
@@ -376,6 +520,27 @@ expected::expected<std::optional<uint16_t>, result> try_read_dma_average(
 
   return std::optional<uint16_t>{static_cast<uint16_t>(sum / count)};
 }
+
+expected::expected<std::optional<uint16_t>, result> try_read_dma_fixed_window_average(
+    const opaque_adc& config) noexcept {
+  auto* const runtime = running_dma_owner_for(config);
+  if (runtime == nullptr || runtime != &config) {
+    return expected::unexpected(result::RECOVERABLE_ERROR);
+  }
+
+  const auto window_width = dma_window_width(*runtime);
+  const uint32_t primask = lock_irq();
+  const uint64_t sum = runtime->m_sum;
+  const uint32_t count = runtime->m_sample_count;
+  runtime->m_sample_count = count & DMA_SAMPLE_COUNT_MASK;
+  unlock_irq(primask);
+
+  if ((count & DMA_FIXED_WINDOW_READY) == 0U) {
+    return std::optional<uint16_t>{};
+  }
+
+  return std::optional<uint16_t>{static_cast<uint16_t>(sum / window_width)};
+}
 }  // namespace
 
 void adc_dma_half_transfer_callback(ADC_HandleTypeDef* hadc) noexcept {
@@ -385,7 +550,11 @@ void adc_dma_half_transfer_callback(ADC_HandleTypeDef* hadc) noexcept {
   }
 
   const auto half_buffer_length = dma_transfer_length(*runtime) / 2U;
-  accumulate_dma_until(*runtime, half_buffer_length);
+  if (uses_fixed_window_average(*runtime)) {
+    complete_fixed_dma_window(*runtime, half_buffer_length);
+  } else {
+    accumulate_dma_until(*runtime, half_buffer_length);
+  }
 }
 
 void adc_dma_full_transfer_callback(ADC_HandleTypeDef* hadc) noexcept {
@@ -394,7 +563,11 @@ void adc_dma_full_transfer_callback(ADC_HandleTypeDef* hadc) noexcept {
     return;
   }
 
-  accumulate_dma_until(*runtime, dma_transfer_length(*runtime));
+  if (uses_fixed_window_average(*runtime)) {
+    complete_fixed_dma_window(*runtime, dma_transfer_length(*runtime));
+  } else {
+    accumulate_dma_until(*runtime, dma_transfer_length(*runtime));
+  }
   runtime->m_processed_samples_in_cycle = 0U;
 }
 
@@ -452,6 +625,15 @@ const ADC_ChannelConfTypeDef& opaque_adc::channel_init() const noexcept {
 
 std::size_t opaque_adc::dma_frame_count() const noexcept {
   return m_p_config != nullptr ? m_p_config->dma_frame_count : 0U;
+}
+
+stm32h5xx::cfg::adc_dma_backend opaque_adc::dma_backend() const noexcept {
+  return m_p_config != nullptr ? m_p_config->dma_backend
+                               : stm32h5xx::cfg::adc_dma_backend::average_since_read;
+}
+
+std::size_t opaque_adc::dma_window_width() const noexcept {
+  return m_p_config != nullptr ? m_p_config->dma_window_width : 0U;
 }
 
 uint32_t opaque_adc::dma_request() const noexcept {
@@ -546,7 +728,7 @@ result opaque_adc::stop() noexcept {
 
     set_dma_owner(instance(), nullptr);
     const auto* const config = m_p_config;
-    *this = opaque_adc{config};
+    *this = make_opaque(config);
     return status;
   }
 
@@ -560,7 +742,9 @@ result opaque_adc::stop() noexcept {
 
 result opaque_adc::read(uint16_t& r_value) noexcept {
   if (uses_dma()) {
-    const auto dma_value = read_dma_average(*this);
+    const auto dma_value = uses_fixed_window_average(*this)
+                               ? read_dma_fixed_window_average(*this)
+                               : read_dma_average(*this);
     if (!dma_value.has_value()) {
       return dma_value.error();
     }
@@ -586,7 +770,9 @@ result opaque_adc::read(uint16_t& r_value) noexcept {
 result opaque_adc::try_read(bool& r_has_value, uint16_t& r_value) noexcept {
   r_has_value = false;
   if (uses_dma()) {
-    const auto dma_value = try_read_dma_average(*this);
+    const auto dma_value = uses_fixed_window_average(*this)
+                               ? try_read_dma_fixed_window_average(*this)
+                               : try_read_dma_average(*this);
     if (!dma_value.has_value()) {
       return dma_value.error();
     }

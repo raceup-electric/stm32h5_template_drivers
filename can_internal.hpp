@@ -10,28 +10,8 @@
 #include "stm_common.hpp"
 
 namespace ru::driver::can_internal {
-inline constexpr uint8_t k_default_irq_priority = 5U;
 inline constexpr std::size_t k_std_filter_slots = 28U;
 inline constexpr std::size_t k_ext_filter_slots = 8U;
-inline constexpr uint32_t k_rx_interrupt_mask_fifo0 = FDCAN_IT_RX_FIFO0_NEW_MESSAGE;
-inline constexpr uint32_t k_rx_interrupt_mask_fifo1 = FDCAN_IT_RX_FIFO1_NEW_MESSAGE;
-inline constexpr uint32_t k_bus_off_interrupt_mask = FDCAN_IT_BUS_OFF;
-inline constexpr uint32_t k_optional_error_interrupt_mask =
-    FDCAN_IT_ERROR_WARNING | FDCAN_IT_ERROR_PASSIVE |
-    FDCAN_IT_ARB_PROTOCOL_ERROR | FDCAN_IT_DATA_PROTOCOL_ERROR |
-    FDCAN_IT_RAM_ACCESS_FAILURE | FDCAN_IT_ERROR_LOGGING_OVERFLOW |
-    FDCAN_IT_RESERVED_ADDRESS_ACCESS;
-inline constexpr uint32_t k_error_interrupt_mask =
-    k_bus_off_interrupt_mask | k_optional_error_interrupt_mask;
-inline constexpr uint32_t k_tx_interrupt_mask = FDCAN_IT_TX_COMPLETE;
-inline constexpr uint32_t k_all_interrupt_mask =
-    k_rx_interrupt_mask_fifo0 | k_rx_interrupt_mask_fifo1 | k_error_interrupt_mask |
-    k_tx_interrupt_mask;
-
-inline void enable_fdcan_clock(FDCAN_GlobalTypeDef* const p_instance) noexcept {
-  (void)p_instance;
-  __HAL_RCC_FDCAN_CLK_ENABLE();
-}
 
 constexpr uint32_t fdcan_dlc_from_length(const uint8_t len) noexcept {
   switch (len) {

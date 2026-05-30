@@ -1,6 +1,5 @@
 #pragma once
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -11,22 +10,6 @@
 #include "stm32h5xx_hal.h"  // IWYU pragma: keep
 
 namespace ru::driver {
-
-namespace detail {
-constexpr std::size_t adc_dma_buffer_capacity() noexcept {
-  std::size_t max_capacity = 1U;
-#define RU_STM32H5XX_ADC_DMA_CAPACITY(name, config)                              \
-  if ((config).uses_dma) {                                                       \
-    const auto capacity = (config).dma_frame_count == 0U ? 1U : (config).dma_frame_count; \
-    if (capacity > max_capacity) {                                               \
-      max_capacity = capacity;                                                   \
-    }                                                                            \
-  }
-  RU_STM32H5XX_ADC_MAP(RU_STM32H5XX_ADC_DMA_CAPACITY)
-#undef RU_STM32H5XX_ADC_DMA_CAPACITY
-  return max_capacity;
-}
-}  // namespace detail
 
 class Adc;
 
@@ -48,6 +31,8 @@ struct opaque_adc {
   const ADC_InitTypeDef& adc_init() const noexcept;
   const ADC_ChannelConfTypeDef& channel_init() const noexcept;
   std::size_t dma_frame_count() const noexcept;
+  stm32h5xx::cfg::adc_dma_backend dma_backend() const noexcept;
+  std::size_t dma_window_width() const noexcept;
   uint32_t dma_request() const noexcept;
   DMA_Channel_TypeDef* dma_channel() const noexcept;
   IRQn_Type dma_irq() const noexcept;
@@ -75,7 +60,6 @@ struct opaque_adc {
   DMA_NodeTypeDef m_dma_node{};
   DMA_QListTypeDef m_dma_queue{};
   DMA_HandleTypeDef m_dma_channel_handle{};
-  std::array<uint16_t, detail::adc_dma_buffer_capacity()> m_dma_buffer{};
   std::size_t m_processed_samples_in_cycle{0U};
   uint64_t m_sum{0U};
   uint32_t m_sample_count{0U};

@@ -7,6 +7,11 @@
 #include "stm32h5xx_hal.h"
 
 namespace ru::driver::stm32h5xx::cfg {
+enum class adc_dma_backend {
+  average_since_read,
+  fixed_window_average,
+};
+
 struct gpio_config {
   uintptr_t port_base;
   bool active_high;
@@ -33,6 +38,8 @@ struct adc_config {
   ADC_ChannelConfTypeDef channel_init;
   bool uses_dma;
   std::size_t dma_frame_count;
+  adc_dma_backend dma_backend;
+  std::size_t dma_window_width;
   uint32_t dma_request;
   uintptr_t dma_channel_base;
   IRQn_Type dma_irq;
@@ -74,6 +81,8 @@ struct adc_config {
         .channel_init = channel_init,
         .uses_dma = false,
         .dma_frame_count = 0U,
+        .dma_backend = adc_dma_backend::average_since_read,
+        .dma_window_width = 0U,
         .dma_request = 0U,
         .dma_channel_base = 0U,
         .dma_irq = static_cast<IRQn_Type>(0),
@@ -91,6 +100,8 @@ struct adc_config {
       const ADC_ChannelConfTypeDef& channel_init, const std::size_t dma_frame_count,
       const uint32_t dma_request, const uintptr_t dma_channel_base,
       const IRQn_Type dma_irq,
+      const adc_dma_backend dma_backend = adc_dma_backend::average_since_read,
+      const std::size_t dma_window_width = 0U,
       const uintptr_t trigger_timer_instance_base = 0U,
       const uint32_t trigger_counter_clock_hz = 0U,
       const uint32_t trigger_frequency_hz = 0U,
@@ -104,6 +115,8 @@ struct adc_config {
         .channel_init = channel_init,
         .uses_dma = true,
         .dma_frame_count = dma_frame_count,
+        .dma_backend = dma_backend,
+        .dma_window_width = dma_window_width,
         .dma_request = dma_request,
         .dma_channel_base = dma_channel_base,
         .dma_irq = dma_irq,
