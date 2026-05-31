@@ -211,6 +211,11 @@ struct timer_config {
   }
 };
 
+struct usb_config {
+  uint32_t task_priority;
+  uint32_t task_period;
+};
+
 struct can_config {
   uintptr_t instance_base;
   uintptr_t port_rx_base;

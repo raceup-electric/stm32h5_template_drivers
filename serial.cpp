@@ -1,9 +1,42 @@
 #include "serial.hpp"
+
+#include "mapping.hpp"
 #include "usb/usb_cdc.h"
 
 using namespace ru::driver;
 
 namespace ru::driver {
+namespace {
+const stm32h5xx::cfg::usb_config* config(const SerialId id) noexcept {
+  switch (id) {
+#define RU_STM32H5XX_SERIAL_CASE(name, cfg) \
+    case SerialId::name:                    \
+      return &cfg;
+    RU_STM32H5XX_SERIAL_MAP(RU_STM32H5XX_SERIAL_CASE)
+#undef RU_STM32H5XX_SERIAL_CASE
+    default:
+      return nullptr;
+  }
+}
+
+const stm32h5xx::cfg::usb_config& usb_config() noexcept {
+  static constexpr stm32h5xx::cfg::usb_config k_default{
+      .task_priority = 3U,
+      .task_period = 1U,
+  };
+  const auto* const p_config = config(SerialId::USB);
+  return p_config != nullptr ? *p_config : k_default;
+}
+}  // namespace
+
+extern "C" uint32_t ru_stm32_usb_cdc_service_task_priority_get(void) {
+  return usb_config().task_priority;
+}
+
+extern "C" uint32_t ru_stm32_usb_cdc_service_task_period_get(void) {
+  return usb_config().task_period;
+}
+
 Serial::Serial(const SerialId id) noexcept : m_id(id), m_opaque() {
 }
 

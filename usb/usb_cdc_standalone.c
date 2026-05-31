@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "FreeRTOS.h"
+#include "task.h"
 #include "ux_api.h"
 #include "ux_device_class_cdc_acm.h"
 #include "ux_device_stack.h"
@@ -14,6 +16,7 @@
 #define RU_USB_PID 0x5710U
 #define RU_USB_BCD_DEVICE 0x0100U
 #define RU_USB_CDC_STANDALONE_TX_BUFFER_SIZE 128U
+#define RU_USB_CDC_STANDALONE_SERVICE_TASK_STACK_DEPTH 256U
 
 #ifndef RU_USB_MANUFACTURER_STRING
 #define RU_USB_MANUFACTURER_STRING "Template"
@@ -100,7 +103,40 @@ static UCHAR g_device_framework_high_speed[] = {
     0x07, 0x05, 0x81, 0x02, 0x40, 0x00, 0x00,
 };
 
+static StaticTask_t g_usb_cdc_service_task_tcb;
+static StackType_t
+    g_usb_cdc_service_task_stack[RU_USB_CDC_STANDALONE_SERVICE_TASK_STACK_DEPTH];
+static TaskHandle_t g_usb_cdc_service_task_handle = NULL;
+
+void ru_stm32_usb_cdc_standalone_tasks_run(void);
 void ru_stm32_usb_cdc_standalone_dcd_tasks_run(void);
+
+static void ru_usb_cdc_standalone_service_task(void* arg) {
+  const TickType_t delay_ticks =
+      pdMS_TO_TICKS(ru_stm32_usb_cdc_service_task_period_get());
+  const TickType_t wait_ticks = (delay_ticks == 0U) ? 1U : delay_ticks;
+  TickType_t last_wake_time = xTaskGetTickCount();
+
+  (void)arg;
+
+  for (;;) {
+    ru_stm32_usb_cdc_standalone_tasks_run();
+    vTaskDelayUntil(&last_wake_time, wait_ticks);
+  }
+}
+
+static int ru_usb_cdc_standalone_start_service_task(void) {
+  if (g_usb_cdc_service_task_handle != NULL) {
+    return 0;
+  }
+
+  g_usb_cdc_service_task_handle = xTaskCreateStatic(
+      ru_usb_cdc_standalone_service_task, "usb_cdc",
+      RU_USB_CDC_STANDALONE_SERVICE_TASK_STACK_DEPTH, NULL,
+      (UBaseType_t)ru_stm32_usb_cdc_service_task_priority_get(),
+      g_usb_cdc_service_task_stack, &g_usb_cdc_service_task_tcb);
+  return (g_usb_cdc_service_task_handle != NULL) ? 0 : -1;
+}
 
 static void ru_usb_append_string(UCHAR index, const char* text, size_t* offset) {
   const size_t length = strlen(text);
@@ -272,7 +308,7 @@ int ru_stm32_usb_cdc_standalone_start(void) {
     return -1;
   }
 
-  return 0;
+  return ru_usb_cdc_standalone_start_service_task();
 }
 
 static int ru_usb_cdc_standalone_is_configured(void) {
@@ -418,12 +454,16 @@ static uint32_t ru_usb_timeout_us_to_ms(uint64_t timeout_us) {
 
 int ru_stm32_usb_cdc_write(const uint8_t* data, size_t len,
                            uint64_t timeout_us) {
+  const BaseType_t has_service_task = g_usb_cdc_service_task_handle != NULL;
+
   if (data == NULL && len != 0U) {
     return -1;
   }
 
   if (len == 0U) {
-    ru_stm32_usb_cdc_tasks_run();
+    if (has_service_task == pdFALSE) {
+      ru_stm32_usb_cdc_tasks_run();
+    }
     return 0;
   }
 
@@ -431,11 +471,20 @@ int ru_stm32_usb_cdc_write(const uint8_t* data, size_t len,
   const uint32_t start_ms = HAL_GetTick();
 
   do {
-    ru_stm32_usb_cdc_tasks_run();
+    if (has_service_task == pdFALSE) {
+      ru_stm32_usb_cdc_tasks_run();
+    }
 
     if (ru_stm32_usb_cdc_raw_try_write(data, len) == 0) {
-      ru_stm32_usb_cdc_tasks_run();
+      if (has_service_task == pdFALSE) {
+        ru_stm32_usb_cdc_tasks_run();
+      }
       return 0;
+    }
+
+    if (has_service_task != pdFALSE &&
+        xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) {
+      vTaskDelay(1U);
     }
   } while (timeout_ms != 0U &&
            (uint32_t)(HAL_GetTick() - start_ms) < timeout_ms);

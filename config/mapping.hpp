@@ -174,6 +174,13 @@ inline constexpr can_config CAN{
         },
 };
 }  // namespace bx_can
+
+namespace serial {
+inline constexpr usb_config USB{
+    .task_priority = 0U,
+    .task_period = 50U,
+};
+}  // namespace serial
 }  // namespace ru::driver::stm32h5xx::cfg
 
 #define RU_STM32H5XX_GPIO_MAP(X) \
@@ -188,7 +195,8 @@ inline constexpr can_config CAN{
 
 #define RU_STM32H5XX_TIMER_MAP(X)
 
-#define RU_STM32H5XX_SERIAL_MAP(X)
+#define RU_STM32H5XX_SERIAL_MAP(X) \
+  X(USB, ::ru::driver::stm32h5xx::cfg::serial::USB)
 
 #define RU_STM32H5XX_M_CAN_MAP(X)
 
