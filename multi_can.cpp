@@ -37,7 +37,7 @@ result CanTx::try_write(const CanMessage message) noexcept {
   return unrecoverable_result();
 }
 
-Can::Can(const Multi_canId id) noexcept : m_id(id) {
+Can::Can(const Multi_canId id) noexcept : m_id(id), m_opaque(make_opaque(id)) {
 }
 
 result Can::start() noexcept {
@@ -82,13 +82,13 @@ result Can::try_write(const CanMessage message) noexcept {
   return unrecoverable_result();
 }
 
-result Can::set_rx_callback(Multi_fifo fifo, void (*callback)(CanMessageTs)) {
+result Can::set_rx_callback(Multi_fifo fifo, void (*callback)(void)) {
   (void)fifo;
   (void)callback;
   return unrecoverable_result();
 }
 
-result Can::set_rx_callback(uint8_t buffer, void (*callback)(CanMessageTs)) {
+result Can::set_rx_callback(uint8_t buffer, void (*callback)(void)) {
   (void)buffer;
   (void)callback;
   return unrecoverable_result();
@@ -197,11 +197,11 @@ expected::expected<bool, result> Can::is_filter_enabled(uint8_t id) {
   return unrecoverable_expected<bool>();
 }
 
-result CanRx::set_rx_callback(Multi_fifo fifo, void (*callback)(CanMessageTs)) {
+result CanRx::set_rx_callback(Multi_fifo fifo, void (*callback)(void)) {
   return const_cast<Can&>(m_can).set_rx_callback(fifo, callback);
 }
 
-result CanRx::set_rx_callback(uint8_t buffer, void (*callback)(CanMessageTs)) {
+result CanRx::set_rx_callback(uint8_t buffer, void (*callback)(void)) {
   return const_cast<Can&>(m_can).set_rx_callback(buffer, callback);
 }
 

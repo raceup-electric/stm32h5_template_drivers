@@ -50,7 +50,7 @@ result Flex_can::try_write(const CanMessage& message) noexcept {
   return unrecoverable_result();
 }
 
-result Flex_can::set_rx_callback(void (*callback)(CanMessageTs)) {
+result Flex_can::set_rx_callback(void (*callback)(void)) {
   (void)callback;
   return unrecoverable_result();
 }
@@ -148,7 +148,7 @@ expected::expected<CanMessageTs, result> Flex_canRx::try_read(uint8_t mb) noexce
   return const_cast<Flex_can&>(m_can).try_read(mb);
 }
 
-result Flex_canRx::set_rx_callback(void (*callback)(CanMessageTs)) {
+result Flex_canRx::set_rx_callback(void (*callback)(void)) {
   return const_cast<Flex_can&>(m_can).set_rx_callback(callback);
 }
 

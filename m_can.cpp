@@ -69,7 +69,7 @@ result M_can::try_write(const CanMessage& message) noexcept {
   return write(message);
 }
 
-result M_can::set_rx_callback(M_fifo fifo, void (*callback)(CanMessageTs)) {
+result M_can::set_rx_callback(M_fifo fifo, void (*callback)()) {
   rx_callbacks(m_opaque)[fifo_index(fifo)] = callback;
   return refresh_notifications(m_opaque);
 }
@@ -195,7 +195,7 @@ expected::expected<bool, result> M_can::is_filter_enabled(uint8_t id) {
   return m_filter_enabled(m_opaque)[id];
 }
 
-result M_canRx::set_rx_callback(M_fifo fifo, void (*callback)(CanMessageTs)) {
+result M_canRx::set_rx_callback(M_fifo fifo, void (*callback)()) {
   return const_cast<M_can&>(m_can).set_rx_callback(fifo, callback);
 }
 

@@ -14,12 +14,6 @@ file(GLOB USBX_DCD_SOURCES
   "${STM32_USBX_ROOT}/common/usbx_stm32_device_controllers/*.c"
 )
 
-list(REMOVE_ITEM DRIVERS_INSTANCE_SOURCES
-  "${STM32H5_DRIVERS_ROOT}/m_can.cpp"
-  "${STM32H5_DRIVERS_ROOT}/flex_can.cpp"
-  "${STM32H5_DRIVERS_ROOT}/multi_can.cpp"
-)
-
 list(APPEND DRIVERS_INSTANCE_SOURCES
   "${STM32H5_DRIVERS_ROOT}/eeprom_itf_crc_stm32h5.cpp"
   "${STM32H5_DRIVERS_ROOT}/eeprom_itf_flash_stm32h5.cpp"

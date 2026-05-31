@@ -101,7 +101,7 @@ std::array<bool, k_std_filter_slots>& m_filter_enabled(const opaque_can& config)
 std::array<std::optional<Bx_filter>, k_std_filter_slots>& bx_filters(
     const opaque_can& config) noexcept;
 std::array<bool, k_std_filter_slots>& bx_filter_enabled(const opaque_can& config) noexcept;
-std::array<void (*)(CanMessageTs), 2>& rx_callbacks(const opaque_can& config) noexcept;
+std::array<void (*)(), 2>& rx_callbacks(const opaque_can& config) noexcept;
 void (*&txfull_callback(const opaque_can& config))();
 
 inline const stm32h5xx::cfg::can_config* config_for(const M_canId id) noexcept {
