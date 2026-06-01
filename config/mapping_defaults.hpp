@@ -22,6 +22,14 @@
 #define RU_STM32H5XX_SERIAL_MAP(X)
 #endif
 
+#ifndef RU_STM32H5XX_FLEX_CAN_MAP
+#define RU_STM32H5XX_FLEX_CAN_MAP(X)
+#endif
+
+#ifndef RU_STM32H5XX_MULTI_CAN_MAP
+#define RU_STM32H5XX_MULTI_CAN_MAP(X)
+#endif
+
 #ifndef RU_STM32H5XX_M_CAN_MAP
 #define RU_STM32H5XX_M_CAN_MAP(X)
 #endif
