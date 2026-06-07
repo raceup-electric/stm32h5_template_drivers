@@ -613,13 +613,7 @@ void service_rx_fifo(const opaque_can& config, const M_fifo fifo) noexcept {
     return;
   }
 
-  while (HAL_FDCAN_GetRxFifoFillLevel(&handle(config), hw_fifo(fifo)) != 0U) {
-    const auto message = read_fifo_message(config, fifo);
-    if (!message.has_value()) {
-      break;
-    }
-
-    (void)message;
+  if (HAL_FDCAN_GetRxFifoFillLevel(&handle(config), hw_fifo(fifo)) != 0U) {
     callback();
   }
 }
