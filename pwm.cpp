@@ -381,8 +381,14 @@ result opaque_general_purpose_pwm::init(
   }
 
   auto channel_config = backend->channel_init;
-  return from_hal_status(
-      HAL_TIM_PWM_ConfigChannel(&r_handle, &channel_config, channel));
+  const auto status =
+      from_hal_status(HAL_TIM_PWM_ConfigChannel(&r_handle, &channel_config, channel));
+  if (status != result::OK) {
+    return status;
+  }
+
+  __HAL_TIM_ENABLE_OCxPRELOAD(&r_handle, channel);
+  return result::OK;
 }
 
 result opaque_general_purpose_pwm::enable() noexcept {
