@@ -75,7 +75,7 @@ result ensure_eeprom_initialized(opaque_nv_memory& memory) noexcept {
       .f_object = memory.m_eeprom_flash_object,
       .crc_object = memory.m_eeprom_crc_object,
   };
-  const auto status = EE_Init(&eeprom_object, EE_CONDITIONAL_ERASE);
+  const auto status = EE_Init(&eeprom_object, RU_STM32H5XX_EEPROM_INIT_ERASE_TYPE);
   if (eeprom_status_is_error(status)) {
     return result::RECOVERABLE_ERROR;
   }
