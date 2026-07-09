@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <array>
 #include <optional>
 
 #include "adc.hpp"
@@ -14,9 +15,6 @@ using namespace ru::driver;
 
 namespace ru::driver {
 namespace {
-constexpr uint32_t DMA_FIXED_WINDOW_READY = 0x80000000UL;
-constexpr uint32_t DMA_SAMPLE_COUNT_MASK = ~DMA_FIXED_WINDOW_READY;
-
 constexpr std::size_t dma_transfer_length(
     const stm32h5xx::cfg::adc_config& config) noexcept {
   return config.dma_frame_count == 0U ? 1U : config.dma_frame_count;
@@ -191,8 +189,9 @@ struct dma_shared_state {
   std::size_t processed_samples_in_cycle{0U};
   std::array<uint64_t, kAdcDmaMaxSequenceLength> average_sums{};
   std::array<uint32_t, kAdcDmaMaxSequenceLength> average_sample_counts{};
-  uint64_t fixed_window_sum{0U};
-  uint32_t fixed_window_count{0U};
+  std::array<uint16_t, kAdcDmaMaxSequenceLength> fixed_window_values{};
+  uint32_t fixed_window_valid_channels{0U};
+  std::size_t fixed_window_sample_count{0U};
 };
 
 dma_shared_state& dma_state_slot(ADC_TypeDef* const p_instance) noexcept {
@@ -290,29 +289,31 @@ void accumulate_dma_until(opaque_adc& runtime, const std::size_t boundary) noexc
   state.processed_samples_in_cycle = boundary;
 }
 
-uint64_t sum_fixed_dma_window(const opaque_adc& runtime,
-                              const std::size_t end_sample) noexcept {
+uint32_t dma_channel_mask(const std::size_t channel_index) noexcept {
+  return 1UL << channel_index;
+}
+
+void sum_fixed_dma_window(
+    const opaque_adc& runtime,
+    const std::size_t end_sample,
+    std::array<uint64_t, kAdcDmaMaxSequenceLength>& sums,
+    std::array<uint32_t, kAdcDmaMaxSequenceLength>& counts) noexcept {
   const auto active_buffer_length = dma_transfer_length(runtime);
   const auto window_width = dma_window_width(runtime);
+  const auto sequence_length = dma_sequence_length(runtime);
   auto* const buffer = dma_buffer(runtime);
-  uint64_t sum{0U};
-
-  const auto sum_range = [buffer, &sum](const std::size_t begin,
-                                        const std::size_t end) noexcept {
-    for (std::size_t sample = begin; sample < end; ++sample) {
-      sum += buffer[sample];
-    }
-  };
-
-  if (window_width <= end_sample) {
-    sum_range(end_sample - window_width, end_sample);
-    return sum;
+  if (active_buffer_length == 0U || sequence_length == 0U || buffer == nullptr) {
+    return;
   }
 
-  const auto wrapped_count = window_width - end_sample;
-  sum_range(active_buffer_length - wrapped_count, active_buffer_length);
-  sum_range(0U, end_sample);
-  return sum;
+  for (std::size_t offset = 0U; offset < window_width; ++offset) {
+    const auto sample =
+        (end_sample + active_buffer_length - window_width + offset) %
+        active_buffer_length;
+    const auto channel_index = sample % sequence_length;
+    sums[channel_index] += buffer[sample];
+    counts[channel_index] += 1U;
+  }
 }
 
 void complete_fixed_dma_window(opaque_adc& runtime,
@@ -326,37 +327,59 @@ void complete_fixed_dma_window(opaque_adc& runtime,
 
   const auto window_width = dma_window_width(runtime);
   const auto completed_count = boundary - state.processed_samples_in_cycle;
-  const auto previous_valid_count = state.fixed_window_count & DMA_SAMPLE_COUNT_MASK;
   const auto valid_count =
-      std::min<uint32_t>(static_cast<uint32_t>(window_width),
-                         previous_valid_count + static_cast<uint32_t>(completed_count));
+      std::min(window_width, state.fixed_window_sample_count + completed_count);
 
   state.processed_samples_in_cycle = boundary;
+  state.fixed_window_sample_count = valid_count;
   if (valid_count < window_width) {
-    state.fixed_window_count = valid_count;
     return;
   }
 
-  state.fixed_window_sum = sum_fixed_dma_window(runtime, boundary);
-  state.fixed_window_count = static_cast<uint32_t>(window_width) | DMA_FIXED_WINDOW_READY;
+  std::array<uint64_t, kAdcDmaMaxSequenceLength> sums{};
+  std::array<uint32_t, kAdcDmaMaxSequenceLength> counts{};
+  sum_fixed_dma_window(runtime, boundary, sums, counts);
+
+  const auto sequence_length = dma_sequence_length(runtime);
+  uint32_t valid_channels{0U};
+  for (std::size_t channel_index = 0U; channel_index < sequence_length;
+       ++channel_index) {
+    const auto count = counts[channel_index];
+    if (count == 0U) {
+      continue;
+    }
+
+    state.fixed_window_values[channel_index] =
+        static_cast<uint16_t>(sums[channel_index] / count);
+    valid_channels |= dma_channel_mask(channel_index);
+  }
+
+  state.fixed_window_valid_channels = valid_channels;
 }
 
 bool prepare_dma_runtime(opaque_adc& runtime) noexcept {
   auto& state = dma_state(runtime);
   state.average_sums.fill(0U);
   state.average_sample_counts.fill(0U);
-  state.fixed_window_sum = 0U;
-  state.fixed_window_count = 0U;
+  state.fixed_window_values.fill(0U);
+  state.fixed_window_valid_channels = 0U;
+  state.fixed_window_sample_count = 0U;
   state.processed_samples_in_cycle = 0U;
   const auto active_buffer_length = dma_transfer_length(runtime);
   const auto sequence_length = dma_sequence_length(runtime);
   const auto window_width = dma_window_width(runtime);
+  const bool sequence_ok =
+      sequence_length > 0U && sequence_length <= kAdcDmaMaxSequenceLength;
+  const bool window_ok =
+      window_width > 0U && window_width <= active_buffer_length;
+  const bool fixed_window_ok =
+      !uses_fixed_window_average(runtime) ||
+      (sequence_ok && window_ok &&
+       (active_buffer_length % sequence_length) == 0U &&
+       (window_width % sequence_length) == 0U);
   return dma_buffer(runtime) != nullptr &&
          active_buffer_length <= dma_buffer_size_for(runtime.m_p_config) &&
-         sequence_length > 0U && sequence_length <= kAdcDmaMaxSequenceLength &&
-         (!uses_fixed_window_average(runtime) || sequence_length == 1U) &&
-         window_width > 0U && window_width <= active_buffer_length &&
-         window_width <= DMA_SAMPLE_COUNT_MASK;
+         sequence_ok && window_ok && fixed_window_ok;
 }
 
 bool configure_adc_channels(opaque_adc& runtime) noexcept {
@@ -586,23 +609,27 @@ expected::expected<uint16_t, result> read_dma_average(const opaque_adc& config) 
 expected::expected<uint16_t, result> read_dma_fixed_window_average(
     const opaque_adc& config) noexcept {
   auto* const runtime = running_dma_owner_for(config);
-  if (runtime == nullptr || runtime != &config) {
+  if (runtime == nullptr || !uses_fixed_window_average(*runtime)) {
     return expected::unexpected(result::RECOVERABLE_ERROR);
   }
 
-  const auto window_width = dma_window_width(*runtime);
+  const auto channel_index = config.dma_sequence_index();
+  if (channel_index >= dma_sequence_length(*runtime)) {
+    return expected::unexpected(result::RECOVERABLE_ERROR);
+  }
+
   auto& state = dma_state(*runtime);
   const uint32_t primask = lock_irq();
-  const uint64_t sum = state.fixed_window_sum;
-  const uint32_t count = state.fixed_window_count;
-  state.fixed_window_count = count & DMA_SAMPLE_COUNT_MASK;
+  const uint16_t value = state.fixed_window_values[channel_index];
+  const bool valid =
+      (state.fixed_window_valid_channels & dma_channel_mask(channel_index)) != 0U;
   unlock_irq(primask);
 
-  if ((count & DMA_FIXED_WINDOW_READY) == 0U) {
+  if (!valid) {
     return expected::unexpected(result::RECOVERABLE_ERROR);
   }
 
-  return static_cast<uint16_t>(sum / window_width);
+  return value;
 }
 
 expected::expected<std::optional<uint16_t>, result> try_read_dma_average(
@@ -635,23 +662,27 @@ expected::expected<std::optional<uint16_t>, result> try_read_dma_average(
 expected::expected<std::optional<uint16_t>, result> try_read_dma_fixed_window_average(
     const opaque_adc& config) noexcept {
   auto* const runtime = running_dma_owner_for(config);
-  if (runtime == nullptr || runtime != &config) {
+  if (runtime == nullptr || !uses_fixed_window_average(*runtime)) {
     return expected::unexpected(result::RECOVERABLE_ERROR);
   }
 
-  const auto window_width = dma_window_width(*runtime);
+  const auto channel_index = config.dma_sequence_index();
+  if (channel_index >= dma_sequence_length(*runtime)) {
+    return expected::unexpected(result::RECOVERABLE_ERROR);
+  }
+
   auto& state = dma_state(*runtime);
   const uint32_t primask = lock_irq();
-  const uint64_t sum = state.fixed_window_sum;
-  const uint32_t count = state.fixed_window_count;
-  state.fixed_window_count = count & DMA_SAMPLE_COUNT_MASK;
+  const uint16_t value = state.fixed_window_values[channel_index];
+  const bool valid =
+      (state.fixed_window_valid_channels & dma_channel_mask(channel_index)) != 0U;
   unlock_irq(primask);
 
-  if ((count & DMA_FIXED_WINDOW_READY) == 0U) {
+  if (!valid) {
     return std::optional<uint16_t>{};
   }
 
-  return std::optional<uint16_t>{static_cast<uint16_t>(sum / window_width)};
+  return std::optional<uint16_t>{value};
 }
 
 expected::expected<uint16_t, result> read_injected_conversion(
