@@ -32,6 +32,10 @@ extern "C" {
 #define HAL_RCC_MODULE_ENABLED
 #define HAL_TIM_MODULE_ENABLED
 #define HAL_UART_MODULE_ENABLED
+#define HAL_RTC_MODULE_ENABLED
+#define HAL_SPI_MODULE_ENABLED
+#define HAL_SD_MODULE_ENABLED
+#define HAL_MMC_MODULE_ENABLED
 
 #define USE_HAL_ADC_REGISTER_CALLBACKS 0U
 #define USE_HAL_FDCAN_REGISTER_CALLBACKS 0U
@@ -140,6 +144,22 @@ extern "C" {
 #include "stm32h5xx_hal_uart.h"
 #include "stm32h5xx_hal_uart_ex.h"
 #endif
+
+#ifdef HAL_RTC_MODULE_ENABLED
+  #include "stm32h5xx_hal_rtc.h"
+#endif /* HAL_RTC_MODULE_ENABLED */
+
+#ifdef HAL_SPI_MODULE_ENABLED
+  #include "stm32h5xx_hal_spi.h"
+#endif /* HAL_SPI_MODULE_ENABLED */
+
+#ifdef HAL_SD_MODULE_ENABLED
+  #include "stm32h5xx_hal_sd.h"
+#endif /* HAL_SD_MODULE_ENABLED */
+
+#ifdef HAL_MMC_MODULE_ENABLED
+  #include "stm32h5xx_hal_mmc.h"
+#endif /* HAL_MMC_MODULE_ENABLED */
 
 #ifdef HAL_PCD_MODULE_ENABLED
 #if defined(__GNUC__) && defined(__cplusplus)

@@ -6,6 +6,9 @@
 
 #include "stm32h5xx_hal.h"
 #include "stm32h5xx_hal_adc_ex.h"
+#include "stm32h5xx_hal_rtc.h"
+#include "stm32h5xx_hal_sd.h"
+#include "stm32h5xx_hal_spi.h"
 
 namespace ru::driver::stm32h5xx::cfg {
 enum class adc_dma_backend {
@@ -277,6 +280,45 @@ struct timer_config {
 struct usb_config {
   uint32_t task_priority;
   uint32_t task_period;
+};
+
+struct rtc_config {
+  uintptr_t instance_base;
+  RTC_InitTypeDef init;
+
+  RTC_TypeDef* instance() const noexcept {
+    return reinterpret_cast<RTC_TypeDef*>(instance_base);
+  }
+};
+
+struct sdmmc_config {
+  uintptr_t instance_base;
+  SD_InitTypeDef init;
+  uint32_t timeout_ms;
+
+  SD_TypeDef* instance() const noexcept {
+    return reinterpret_cast<SD_TypeDef*>(instance_base);
+  }
+};
+
+struct spi_config {
+  uintptr_t instance_base;
+  SPI_InitTypeDef init;
+  uint32_t timeout_ms;
+
+  SPI_TypeDef* instance() const noexcept {
+    return reinterpret_cast<SPI_TypeDef*>(instance_base);
+  }
+};
+
+struct spi_proto_config {
+  uintptr_t instance_base;
+  SPI_InitTypeDef init;
+  uint32_t timeout_ms;
+
+  SPI_TypeDef* instance() const noexcept {
+    return reinterpret_cast<SPI_TypeDef*>(instance_base);
+  }
 };
 
 struct can_config {
