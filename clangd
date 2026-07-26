@@ -1,7 +1,7 @@
 CompileFlags:
   # CompilationDatabase: .build/posix-debug
   # CompilationDatabase: .build/posix-console
-  CompilationDatabase: .build/stm32h563vit6x-debug
+  CompilationDatabase: .build/stm32h563vit6-debug
   # CompilationDatabase: .build/stm32h562rgt6-debug
 
 ---
@@ -10,7 +10,7 @@ If:
 CompileFlags:
   # CompilationDatabase: .build/posix-debug
   # CompilationDatabase: .build/posix-console
-  CompilationDatabase: .build/stm32h563vit6x-debug
+  CompilationDatabase: .build/stm32h563vit6-debug
   # CompilationDatabase: .build/stm32h562rgt6-debug
 
 ---
@@ -19,7 +19,7 @@ If:
 CompileFlags:
   # CompilationDatabase: .build/posix-debug
   # CompilationDatabase: .build/posix-console
-  CompilationDatabase: .build/stm32h563vit6x-debug
+  CompilationDatabase: .build/stm32h563vit6-debug
   Compiler: /usr/bin/arm-none-eabi-g++
   BuiltinHeaders: QueryDriver
 
@@ -34,7 +34,7 @@ CompileFlags:
 If:
   PathMatch: (^|.*/)instances/stm32/.*
 CompileFlags:
-  CompilationDatabase: .build/stm32h563vit6x-debug
+  CompilationDatabase: .build/stm32h563vit6-debug
   # CompilationDatabase: .build/stm32h562rgt6-debug
   Compiler: /usr/bin/arm-none-eabi-g++
   BuiltinHeaders: QueryDriver
@@ -56,7 +56,7 @@ CompileFlags:
 If:
   PathMatch: (^|.*/)lib/drivers/instances/stm32h5xx/.*
 CompileFlags:
-  CompilationDatabase: .build/stm32h563vit6x-debug
+  CompilationDatabase: .build/stm32h563vit6-debug
   # CompilationDatabase: .build/stm32h562rgt6-debug
   Compiler: /usr/bin/arm-none-eabi-g++
   BuiltinHeaders: QueryDriver
@@ -65,7 +65,7 @@ CompileFlags:
 If:
   PathMatch: (^|.*/)lib/drivers/instances/stm32h5xx/.*\.c$
 CompileFlags:
-  CompilationDatabase: .build/stm32h563vit6x-debug
+  CompilationDatabase: .build/stm32h563vit6-debug
   Compiler: /usr/bin/arm-none-eabi-gcc
   BuiltinHeaders: QueryDriver
 
@@ -73,7 +73,7 @@ CompileFlags:
 If:
   PathMatch: (^|.*/)third_party/expected/include/.*
 CompileFlags:
-  CompilationDatabase: .build/stm32h563vit6x-debug
+  CompilationDatabase: .build/stm32h563vit6-debug
   Compiler: /usr/bin/arm-none-eabi-g++
   BuiltinHeaders: QueryDriver
 
