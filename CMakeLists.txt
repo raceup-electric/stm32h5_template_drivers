@@ -1,4 +1,12 @@
 set(_drivers_instance_dir "${CMAKE_CURRENT_LIST_DIR}")
+# These implementations require peripheral mapping types that the current H5
+# board mappings do not provide.  USB MSC is currently only a placeholder.
+set(DRIVERS_INSTANCE_EXCLUDED_SOURCES
+  rtc.cpp
+  sdmmc.cpp
+  spi.cpp
+  usbd_msc.cpp
+)
 include("${CMAKE_CURRENT_LIST_DIR}/../instance_layout.cmake")
 
 list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
